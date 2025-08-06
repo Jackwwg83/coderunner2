@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Config files
+package-lock.json
+yarn.lock
+
+# Logs
+*.log
+
+# Database
+*.sqlite
+*.db
+
+# Coverage
+coverage/
+
+# IDE
+.vscode/
+.idea/
