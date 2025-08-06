@@ -195,12 +195,8 @@ export class AuthMiddleware {
     },
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    skipSuccessfulRequests: true, // Don't count successful requests
-    keyGenerator: (req: Request) => {
-      // Use combination of IP and email for more precise rate limiting
-      const email = req.body?.email || 'unknown';
-      return `${req.ip || 'unknown-ip'}-${email}`;
-    }
+    skipSuccessfulRequests: true // Don't count successful requests
+    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
   });
 
   /**
@@ -215,8 +211,8 @@ export class AuthMiddleware {
       code: 'REGISTRATION_RATE_LIMIT_EXCEEDED'
     },
     standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req: Request) => req.ip || 'unknown-ip'
+    legacyHeaders: false
+    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
   });
 
   /**
@@ -232,10 +228,7 @@ export class AuthMiddleware {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: Request) => {
-      // Use user ID if authenticated, otherwise use IP
-      return req.user?.userId || req.ip || 'unknown-ip';
-    },
+    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
     skip: (req: Request) => {
       // Skip rate limiting for health checks
       return req.path === '/health' || req.path === '/api/health';
@@ -254,10 +247,8 @@ export class AuthMiddleware {
       code: 'PASSWORD_CHANGE_RATE_LIMIT_EXCEEDED'
     },
     standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req: Request) => {
-      return req.user?.userId || req.ip || 'unknown-ip';
-    }
+    legacyHeaders: false
+    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
   });
 
   /**
@@ -272,8 +263,8 @@ export class AuthMiddleware {
       code: 'ACCOUNT_DELETION_RATE_LIMIT_EXCEEDED'
     },
     standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req: Request) => req.ip || 'unknown-ip'
+    legacyHeaders: false
+    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
   });
 
   /**

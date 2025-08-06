@@ -140,8 +140,6 @@ export const createMockAuthService = () => {
     }),
 
     refreshToken: jest.fn().mockImplementation(async (oldToken: string) => {
-      const _payload = mockJWTPayloads.nearExpiryUser; // Token near expiry
-      
       const mockResponse: AuthResponse = {
         success: true,
         data: {
@@ -233,7 +231,6 @@ export const createMockAuthService = () => {
 
     // User management
     getCurrentUser: jest.fn().mockImplementation(async (_token: string) => {
-      const _payload = mockJWTPayloads.validUser;
       return withoutPassword(mockUsers.validUser);
     }),
 
@@ -270,12 +267,12 @@ export const createMockAuthService = () => {
       return emailRegex.test(email) && email.length <= 254;
     }),
 
-    getUserIdFromToken: jest.fn().mockImplementation((token: string) => {
+    getUserIdFromToken: jest.fn().mockImplementation((_token: string) => {
       return mockJWTPayloads.validUser.userId;
     }),
 
     // Security methods
-    isTokenNearExpiry: jest.fn().mockImplementation((token: string, windowHours = 24) => {
+    isTokenNearExpiry: jest.fn().mockImplementation((token: string, _windowHours = 24) => {
       // Mock logic for testing
       if (token === MockAuthService.createMockToken(mockJWTPayloads.nearExpiryUser)) {
         return true;

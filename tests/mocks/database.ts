@@ -22,7 +22,6 @@ export class MockDatabaseService {
     deployments: new Map<string, Deployment>()
   };
 
-  private static isConnected = false;
 
   // Initialize with test data
   static initializeTestData(): void {
@@ -112,8 +111,9 @@ export class MockDatabaseService {
   }
 
   static createMockPoolClient(): Partial<PoolClient> {
+    const mockQuery = this.createSuccessfulMockQuery();
     return {
-      query: this.createSuccessfulMockQuery(),
+      query: mockQuery as any,
       release: jest.fn(),
     };
   }
