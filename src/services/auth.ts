@@ -579,3 +579,6 @@ export class AuthService {
     }
   }
 }
+
+// Export both named and default exports for compatibility
+export default AuthService;

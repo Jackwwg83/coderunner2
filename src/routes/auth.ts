@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AuthService } from '../services/auth';
+import AuthService from '../services/auth';
 import { AuthMiddleware } from '../middleware/auth';
 import { 
   AuthError, 

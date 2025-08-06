@@ -1,5 +1,4 @@
 import jwt from 'jsonwebtoken';
-import { AuthService } from '../../src/services/auth';
 import { JWTPayload, AuthResponse, AuthError } from '../../src/types';
 import { mockUsers, mockJWTPayloads, withoutPassword } from '../fixtures/users';
 
@@ -294,7 +293,6 @@ export const createMockAuthService = () => {
 // Helper to mock AuthService.getInstance()
 export const mockAuthServiceInstance = () => {
   const mockAuth = createMockAuthService();
-  jest.spyOn(AuthService, 'getInstance').mockReturnValue(mockAuth as any);
   return mockAuth;
 };
 

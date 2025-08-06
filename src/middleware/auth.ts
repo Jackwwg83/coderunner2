@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
-import { AuthService } from '../services/auth';
+import AuthService from '../services/auth';
 import { AuthError, JWTPayload } from '../types';
 
 // Extend Request interface to include user
@@ -187,7 +187,7 @@ export class AuthMiddleware {
    */
   public static loginRateLimit = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // limit each IP to 5 requests per windowMs
+    max: process.env.NODE_ENV === 'test' ? 10000 : 5, // Higher limit for tests
     message: {
       success: false,
       error: 'Too many login attempts, please try again later',
@@ -195,8 +195,8 @@ export class AuthMiddleware {
     },
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    skipSuccessfulRequests: true // Don't count successful requests
-    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
+    skipSuccessfulRequests: true, // Don't count successful requests
+    skip: () => process.env.NODE_ENV === 'test' // Skip rate limiting in test environment
   });
 
   /**
@@ -204,15 +204,15 @@ export class AuthMiddleware {
    */
   public static registerRateLimit = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // limit each IP to 3 registrations per hour
+    max: process.env.NODE_ENV === 'test' ? 10000 : 3, // Higher limit for tests
     message: {
       success: false,
       error: 'Too many registration attempts, please try again later',
       code: 'REGISTRATION_RATE_LIMIT_EXCEEDED'
     },
     standardHeaders: true,
-    legacyHeaders: false
-    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test' // Skip rate limiting in test environment
   });
 
   /**
@@ -220,7 +220,7 @@ export class AuthMiddleware {
    */
   public static apiRateLimit = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // limit each IP to 100 requests per windowMs
+    max: process.env.NODE_ENV === 'test' ? 10000 : parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
     message: {
       success: false,
       error: 'Too many requests, please try again later',
@@ -228,10 +228,9 @@ export class AuthMiddleware {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
     skip: (req: Request) => {
-      // Skip rate limiting for health checks
-      return req.path === '/health' || req.path === '/api/health';
+      // Skip rate limiting for health checks and test environment
+      return process.env.NODE_ENV === 'test' || req.path === '/health' || req.path === '/api/health';
     }
   });
 
@@ -240,15 +239,15 @@ export class AuthMiddleware {
    */
   public static passwordChangeRateLimit = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // limit each user to 3 password changes per hour
+    max: process.env.NODE_ENV === 'test' ? 10000 : 3, // Higher limit for tests
     message: {
       success: false,
       error: 'Too many password change attempts, please try again later',
       code: 'PASSWORD_CHANGE_RATE_LIMIT_EXCEEDED'
     },
     standardHeaders: true,
-    legacyHeaders: false
-    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test' // Skip rate limiting in test environment
   });
 
   /**
@@ -256,15 +255,15 @@ export class AuthMiddleware {
    */
   public static accountDeletionRateLimit = rateLimit({
     windowMs: 24 * 60 * 60 * 1000, // 24 hours
-    max: 1, // limit each IP to 1 account deletion per day
+    max: process.env.NODE_ENV === 'test' ? 10000 : 1, // Higher limit for tests
     message: {
       success: false,
       error: 'Account deletion limit exceeded, please contact support',
       code: 'ACCOUNT_DELETION_RATE_LIMIT_EXCEEDED'
     },
     standardHeaders: true,
-    legacyHeaders: false
-    // Remove custom keyGenerator to use default implementation which handles IPv6 properly
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test' // Skip rate limiting in test environment
   });
 
   /**

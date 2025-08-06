@@ -1,6 +1,5 @@
 import request from 'supertest';
 import express from 'express';
-import authRoutes from '../../src/routes/auth';
 import { AuthError } from '../../src/types';
 import { 
   mockUsers, 
@@ -10,14 +9,78 @@ import {
   withoutPassword 
 } from '../fixtures/users';
 import { 
-  mockAuthServiceInstance, 
+  createMockAuthService,
   resetAuthMocks,
   MockAuthService 
 } from '../mocks/auth';
 
-// Mock dependencies
-jest.mock('../../src/services/auth');
+// Mock the AuthService module before importing routes
+jest.mock('../../src/services/auth', () => {
+  const mockAuthService = {
+    register: jest.fn(),
+    login: jest.fn(),
+    generateToken: jest.fn(),
+    verifyToken: jest.fn(),
+    decodeToken: jest.fn(),
+    refreshToken: jest.fn(),
+    revokeToken: jest.fn(),
+    hashPassword: jest.fn(),
+    comparePassword: jest.fn(),
+    changePassword: jest.fn(),
+    validatePassword: jest.fn(),
+    getCurrentUser: jest.fn(),
+    updateProfile: jest.fn(),
+    deleteAccount: jest.fn(),
+    isValidEmail: jest.fn(),
+    getUserIdFromToken: jest.fn(),
+    isTokenNearExpiry: jest.fn(),
+    getTokenExpiration: jest.fn()
+  };
+
+  class MockAuthServiceClass {
+    private static instance: MockAuthServiceClass;
+
+    public static getInstance(): MockAuthServiceClass {
+      if (!MockAuthServiceClass.instance) {
+        MockAuthServiceClass.instance = new MockAuthServiceClass();
+      }
+      return MockAuthServiceClass.instance as any;
+    }
+
+    register = mockAuthService.register;
+    login = mockAuthService.login;
+    generateToken = mockAuthService.generateToken;
+    verifyToken = mockAuthService.verifyToken;
+    decodeToken = mockAuthService.decodeToken;
+    refreshToken = mockAuthService.refreshToken;
+    revokeToken = mockAuthService.revokeToken;
+    hashPassword = mockAuthService.hashPassword;
+    comparePassword = mockAuthService.comparePassword;
+    changePassword = mockAuthService.changePassword;
+    validatePassword = mockAuthService.validatePassword;
+    getCurrentUser = mockAuthService.getCurrentUser;
+    updateProfile = mockAuthService.updateProfile;
+    deleteAccount = mockAuthService.deleteAccount;
+    isValidEmail = mockAuthService.isValidEmail;
+    getUserIdFromToken = mockAuthService.getUserIdFromToken;
+    isTokenNearExpiry = mockAuthService.isTokenNearExpiry;
+    getTokenExpiration = mockAuthService.getTokenExpiration;
+  }
+
+  // Store reference for test access
+  (MockAuthServiceClass as any).__mockMethods = mockAuthService;
+
+  return {
+    __esModule: true,
+    default: MockAuthServiceClass,
+    AuthService: MockAuthServiceClass
+  };
+});
+
 jest.mock('../../src/services/database');
+
+// Import routes after mocking
+import authRoutes from '../../src/routes/auth';
 
 describe('Auth Routes Integration', () => {
   let app: express.Application;
@@ -34,8 +97,17 @@ describe('Auth Routes Integration', () => {
     jest.clearAllMocks();
     resetAuthMocks();
 
-    // Setup auth service mock
-    mockAuthService = mockAuthServiceInstance();
+    // Get the mocked methods from the AuthService mock
+    const AuthServiceMock = require('../../src/services/auth').default;
+    mockAuthService = (AuthServiceMock as any).__mockMethods;
+    
+    // Setup mock implementations
+    const mockImplementations = createMockAuthService();
+    Object.keys(mockImplementations).forEach(key => {
+      if (mockAuthService[key] && typeof mockImplementations[key as keyof typeof mockImplementations] === 'function') {
+        mockAuthService[key].mockImplementation(mockImplementations[key as keyof typeof mockImplementations]);
+      }
+    });
 
     // Create Express app with auth routes
     app = express();
