@@ -455,3 +455,26 @@ export interface WebSocketMessage {
   userId?: string;
   requestId?: string;
 }
+
+// Manifest Engine Types
+export interface ManifestConfig {
+  name: string;
+  version?: string;
+  entities: ManifestEntity[];
+}
+
+export interface ManifestEntity {
+  name: string;
+  fields: ManifestField[];
+}
+
+export interface ManifestField {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'date';
+  required?: boolean;
+}
+
+export interface GeneratedFile {
+  path: string;
+  content: string;
+}

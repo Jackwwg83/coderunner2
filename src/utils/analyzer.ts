@@ -3,9 +3,45 @@ import * as path from 'path';
 import { ProjectFile, AnalysisResult, CodeComplexity, DependencyInfo } from '../types/index';
 
 /**
+ * Project detection and analysis results
+ */
+export interface ProjectAnalysis {
+  projectType: 'nodejs' | 'manifest';
+  startCommand: string;
+  dependencies: string[];
+  framework?: string;     // e.g., 'express', 'react', 'next'
+  version?: string;        // from package.json
+  entryPoint?: string;     // main file
+}
+
+/**
+ * Package.json structure for Node.js projects
+ */
+interface PackageJson {
+  name?: string;
+  version?: string;
+  main?: string;
+  scripts?: { [key: string]: string };
+  dependencies?: { [key: string]: string };
+  devDependencies?: { [key: string]: string };
+}
+
+/**
+ * Manifest.yaml structure for Manifest projects
+ */
+interface ManifestConfig {
+  name?: string;
+  version?: string;
+  entities?: { [key: string]: any };
+  // Add other manifest properties as needed
+}
+
+/**
  * ProjectAnalyzer - Analyzes project code and structure
  * 
  * This utility provides:
+ * - Project type detection (Node.js vs Manifest)
+ * - Project metadata extraction
  * - Static code analysis
  * - Dependency analysis
  * - Code complexity metrics
@@ -15,11 +51,159 @@ import { ProjectFile, AnalysisResult, CodeComplexity, DependencyInfo } from '../
 export class ProjectAnalyzer {
   
   /**
-   * Analyze project files and structure
+   * Analyze project files to determine type and extract metadata
+   * Supports Node.js and Manifest project types
+   */
+  public static analyzeProject(files: ProjectFile[]): ProjectAnalysis {
+    console.log(`Analyzing project with ${files.length} files`);
+    
+    // Check for project type indicators
+    const hasPackageJson = files.some(file => file.path === 'package.json');
+    const manifestFile = files.find(file => file.path === 'manifest.yaml' || file.path === 'manifest.yml');
+    
+    if (manifestFile) {
+      return this.analyzeManifestProject(files, manifestFile);
+    } else if (hasPackageJson) {
+      return this.analyzeNodeJsProject(files);
+    } else {
+      // Default fallback - treat as basic Node.js project
+      return {
+        projectType: 'nodejs',
+        startCommand: 'node index.js',
+        dependencies: ['npm'],
+        framework: 'unknown'
+      };
+    }
+  }
+
+  /**
+   * Analyze Node.js project based on package.json
+   */
+  private static analyzeNodeJsProject(files: ProjectFile[]): ProjectAnalysis {
+    const packageJsonFile = files.find(file => file.path === 'package.json');
+    
+    if (!packageJsonFile) {
+      // Shouldn't happen but handle gracefully
+      return {
+        projectType: 'nodejs',
+        startCommand: 'node index.js',
+        dependencies: ['npm']
+      };
+    }
+
+    let packageJson: PackageJson = {};
+    try {
+      packageJson = JSON.parse(packageJsonFile.content);
+    } catch (error) {
+      console.warn('Failed to parse package.json:', error);
+      return {
+        projectType: 'nodejs',
+        startCommand: 'node index.js',
+        dependencies: ['npm'],
+        framework: 'malformed-package-json'
+      };
+    }
+
+    // Determine start command
+    let startCommand = 'npm start'; // Default
+    if (packageJson.scripts?.start) {
+      startCommand = 'npm start';
+    } else if (packageJson.scripts?.dev) {
+      startCommand = 'npm run dev';
+    } else if (packageJson.main) {
+      startCommand = `node ${packageJson.main}`;
+    } else {
+      startCommand = 'node index.js';
+    }
+
+    // Detect framework
+    const framework = this.detectNodeJsFramework(packageJson);
+    
+    return {
+      projectType: 'nodejs',
+      startCommand,
+      dependencies: ['npm'],
+      framework,
+      version: packageJson.version,
+      entryPoint: packageJson.main || 'index.js'
+    };
+  }
+
+  /**
+   * Analyze Manifest project based on manifest.yaml/yml
+   */
+  private static analyzeManifestProject(files: ProjectFile[], manifestFile: ProjectFile): ProjectAnalysis {
+    let manifestConfig: ManifestConfig = {};
+    
+    try {
+      // Simple YAML parsing - in production, use a proper YAML parser like 'js-yaml'
+      // For now, we'll do basic validation to ensure it's a valid structure
+      const content = manifestFile.content.trim();
+      
+      // Basic YAML structure validation
+      if (!content || !content.includes(':')) {
+        throw new Error('Invalid YAML structure');
+      }
+      
+      // For now, we'll assume it's valid and extract basic info
+      // TODO: Implement proper YAML parsing when js-yaml is available
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (line.trim().startsWith('name:')) {
+          const name = line.split('name:')[1]?.trim().replace(/["']/g, '');
+          if (name) manifestConfig.name = name;
+        }
+        if (line.trim().startsWith('version:')) {
+          const version = line.split('version:')[1]?.trim().replace(/["']/g, '');
+          if (version) manifestConfig.version = version;
+        }
+      }
+      
+    } catch (error) {
+      console.warn('Failed to parse manifest file:', error);
+      // Continue with defaults
+    }
+
+    return {
+      projectType: 'manifest',
+      startCommand: 'npm start', // Default for generated Express apps
+      dependencies: ['npm'],
+      framework: 'manifest-generated',
+      version: manifestConfig.version,
+      entryPoint: 'index.js' // Generated Express apps typically use index.js
+    };
+  }
+
+  /**
+   * Detect Node.js framework from package.json dependencies
+   */
+  private static detectNodeJsFramework(packageJson: PackageJson): string {
+    const allDeps = {
+      ...packageJson.dependencies,
+      ...packageJson.devDependencies
+    };
+
+    // Check for popular frameworks in order of specificity
+    if (allDeps.next || allDeps['next']) return 'next';
+    if (allDeps.nuxt || allDeps['@nuxt/core']) return 'nuxt';
+    if (allDeps.express) return 'express';
+    if (allDeps.react || allDeps['react-dom']) return 'react';
+    if (allDeps.vue || allDeps['@vue/cli-service']) return 'vue';
+    if (allDeps.angular || allDeps['@angular/core']) return 'angular';
+    if (allDeps.nestjs || allDeps['@nestjs/core']) return 'nestjs';
+    if (allDeps.fastify) return 'fastify';
+    if (allDeps.koa) return 'koa';
+    if (allDeps.hapi || allDeps['@hapi/hapi']) return 'hapi';
+    
+    return 'nodejs'; // Generic Node.js project
+  }
+
+  /**
+   * Analyze project files and structure (Legacy method for code analysis)
    * TODO: Implement comprehensive analysis
    */
-  public static async analyzeProject(files: ProjectFile[]): Promise<AnalysisResult> {
-    console.log(`Analyzing project with ${files.length} files`);
+  public static async analyzeProjectLegacy(files: ProjectFile[]): Promise<AnalysisResult> {
+    console.log(`Performing legacy analysis on project with ${files.length} files`);
     
     const analysis: AnalysisResult = {
       projectId: '',

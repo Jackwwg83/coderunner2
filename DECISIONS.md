@@ -36,4 +36,23 @@
 
 ## 核心产品决策
 
-*(暂无核心产品决策)*
+### 选择 LowDB v7 作为 Manifest 生成项目的数据库
+- **决策ID**: D003
+- **决策日期**: 2025-08-07
+- **决策内容**: ManifestEngine 生成的所有项目将使用 LowDB v7 作为数据存储方案，而非 SQLite 或其他数据库。
+- **决策理由**: LowDB 是纯 JavaScript 实现，无需编译原生依赖，完美适配 AgentSphere 沙箱环境。零配置即可使用，JSON 格式便于调试，对 MVP/POC 项目性能足够。
+- **影响范围**: 所有通过 Manifest YAML 生成的项目。未来可在 Phase 2 提供其他数据库选项。
+
+### ManifestEngine 生成 JavaScript 而非 TypeScript
+- **决策ID**: D004
+- **决策日期**: 2025-08-07
+- **决策内容**: ManifestEngine 生成纯 JavaScript (CommonJS) 代码，而非 TypeScript。
+- **决策理由**: 沙箱环境中无需编译步骤，减少依赖和复杂性，启动时间更快。对于 MVP 阶段的快速原型开发更加合适。
+- **影响范围**: ManifestEngine 的代码生成逻辑。Phase 2 可考虑添加 TypeScript 输出选项。
+
+### MVP 范围明确界定
+- **决策ID**: D005
+- **决策日期**: 2025-08-07
+- **决策内容**: Phase 1 MVP 仅支持基础 CRUD 功能，不包含认证、GraphQL、WebSocket、数据关系等高级特性。
+- **决策理由**: 专注核心价值（YAML→后端转换），快速验证产品概念，降低初期复杂度。
+- **影响范围**: ManifestEngine 功能范围，用户期望管理，产品路线图规划。
