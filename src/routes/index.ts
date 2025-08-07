@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ApiResponse } from '../types/index';
 import authRoutes from './auth';
+import deployRoutes from './deploy';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ router.get('/', (_req, res) => {
       timestamp: new Date().toISOString(),
       endpoints: {
         auth: '/api/auth - Authentication (✅ Implemented)',
+        deploy: '/api/deploy - Unified Deployment (✅ Implemented)',
         projects: '/api/projects - Coming in Phase 1',
         executions: '/api/executions - Coming in Phase 1',
         templates: '/api/templates - Coming in Phase 1',
@@ -46,6 +48,7 @@ router.get('/health', (_req, res) => {
 
 // Route modules
 router.use('/auth', authRoutes);
+router.use('/deploy', deployRoutes);
 // TODO: Add remaining route modules when implemented
 // router.use('/projects', projectRoutes);
 // router.use('/executions', executionRoutes);

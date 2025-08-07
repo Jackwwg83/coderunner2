@@ -10,8 +10,8 @@ export interface ProjectAnalysis {
   startCommand: string;
   dependencies: string[];
   framework?: string;     // e.g., 'express', 'react', 'next'
-  version?: string;        // from package.json
-  entryPoint?: string;     // main file
+  version?: string | undefined;        // from package.json
+  entryPoint?: string | undefined;     // main file
 }
 
 /**

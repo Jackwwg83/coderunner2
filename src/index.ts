@@ -12,6 +12,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Export app for testing
+export { app };
+
 // Security middleware
 app.use(helmet());
 app.use(cors({
@@ -119,5 +122,7 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-// Start the server
-startServer();
+// Start the server only if this module is run directly
+if (require.main === module) {
+  startServer();
+}

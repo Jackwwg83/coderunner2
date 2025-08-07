@@ -175,7 +175,7 @@ export interface Deployment {
 export interface ProjectFile {
   path: string;
   content: string;
-  language?: string;
+  language?: string | undefined;
   isTemplate?: boolean;
   size?: number;
   lastModified?: Date;
