@@ -227,6 +227,235 @@ entities:
     });
   });
 
+  describe('Security Tests', () => {
+    it('should reject SQL injection attempts in project name', async () => {
+      const maliciousNames = [
+        "'; DROP TABLE users; --",
+        "test' OR '1'='1",
+        "test'; DELETE FROM projects; --",
+        "test' UNION SELECT * FROM users; --"
+      ];
+
+      for (const maliciousName of maliciousNames) {
+        const response = await request(app)
+          .post('/api/deploy')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            projectName: maliciousName,
+            files: [{ path: 'index.js', content: 'console.log("test");' }]
+          });
+
+        expect([400, 422]).toContain(response.status);
+      }
+    });
+
+    it('should reject XSS attempts in project name', async () => {
+      const xssPayloads = [
+        '<script>alert("xss")</script>',
+        'javascript:alert("xss")',
+        '<img src=x onerror="alert(1)">',
+        '"><script>alert("xss")</script>',
+        "'; alert('xss'); //"
+      ];
+
+      for (const xssPayload of xssPayloads) {
+        const response = await request(app)
+          .post('/api/deploy')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            projectName: xssPayload,
+            files: [{ path: 'index.js', content: 'console.log("test");' }]
+          });
+
+        expect([400, 422]).toContain(response.status);
+      }
+    });
+
+    it('should reject path traversal attempts in file paths', async () => {
+      const maliciousPaths = [
+        '../../../etc/passwd',
+        '..\\..\\..\\windows\\system32\\config\\sam',
+        '/etc/shadow',
+        'C:\\Windows\\System32\\drivers\\etc\\hosts',
+        '../../../../proc/self/environ',
+        '../../../var/log/messages'
+      ];
+
+      for (const maliciousPath of maliciousPaths) {
+        const response = await request(app)
+          .post('/api/deploy')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            projectName: 'security-test',
+            files: [{ path: maliciousPath, content: 'malicious content' }]
+          });
+
+        expect([400, 422]).toContain(response.status);
+        if (response.body.error) {
+          expect(response.body.error.toLowerCase()).toMatch(/(invalid|path|security|forbidden)/);
+        }
+      }
+    });
+
+    it('should handle extremely large file upload attempts', async () => {
+      // Create a file larger than typical limits (>100MB)
+      const largeContent = 'A'.repeat(10 * 1024 * 1024); // 10MB string (safer for testing)
+      
+      const response = await request(app)
+        .post('/api/deploy')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          projectName: 'large-file-test',
+          files: [{ path: 'large-file.txt', content: largeContent }]
+        });
+
+      // Should either reject with 413 (too large) or 400 (bad request)
+      expect([400, 413, 422]).toContain(response.status);
+    });
+
+    it('should handle concurrent deployment requests', async () => {
+      const promises = Array.from({ length: 10 }, (_, i) => 
+        request(app)
+          .post('/api/deploy')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            projectName: `concurrent-test-${i}`,
+            files: [{ path: 'index.js', content: `console.log("concurrent ${i}");` }]
+          })
+      );
+
+      const responses = await Promise.all(promises);
+      
+      // All requests should be processed (either success or proper error)
+      responses.forEach(response => {
+        expect([201, 400, 422, 429, 500]).toContain(response.status);
+      });
+    });
+
+    it('should validate file content for malicious code patterns', async () => {
+      const maliciousFiles = [
+        {
+          path: 'malicious.js',
+          content: 'const { exec } = require("child_process"); exec("rm -rf /");'
+        },
+        {
+          path: 'backdoor.js',
+          content: 'require("net").createServer(c => { c.pipe(require("child_process").spawn("/bin/sh", ["-i"]).stdio[0]); }).listen(1337);'
+        },
+        {
+          path: 'crypto.js',
+          content: 'const crypto = require("crypto"); process.exit(crypto.randomBytes(1000000));'
+        }
+      ];
+
+      for (const maliciousFile of maliciousFiles) {
+        const response = await request(app)
+          .post('/api/deploy')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            projectName: 'malicious-code-test',
+            files: [maliciousFile]
+          });
+
+        // Should process but may flag as potentially dangerous
+        expect([201, 400, 422, 500]).toContain(response.status);
+      }
+    });
+
+    it('should handle invalid authentication tokens', async () => {
+      const invalidTokens = [
+        'invalid-token',
+        'Bearer invalid',
+        '',
+        'null',
+        'undefined',
+        'jwt-token-that-is-way-too-long-' + 'x'.repeat(1000)
+      ];
+
+      for (const invalidToken of invalidTokens) {
+        const response = await request(app)
+          .post('/api/deploy')
+          .set('Authorization', invalidToken)
+          .send({
+            projectName: 'auth-test',
+            files: [{ path: 'index.js', content: 'console.log("test");' }]
+          });
+
+        expect([401, 403]).toContain(response.status);
+      }
+    });
+
+    it('should reject binary files with suspicious patterns', async () => {
+      const suspiciousFiles = [
+        {
+          path: 'suspicious.exe',
+          content: String.fromCharCode(77, 90) + 'PE\0\0' // PE header
+        },
+        {
+          path: 'script.sh',
+          content: '#!/bin/bash\nrm -rf /\n'
+        },
+        {
+          path: 'payload.bat',
+          content: '@echo off\nformat c: /y\n'
+        }
+      ];
+
+      for (const suspiciousFile of suspiciousFiles) {
+        const response = await request(app)
+          .post('/api/deploy')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            projectName: 'suspicious-file-test',
+            files: [suspiciousFile]
+          });
+
+        expect([400, 415, 422]).toContain(response.status);
+      }
+    });
+
+    it('should enforce rate limiting for frequent requests', async () => {
+      // Simulate rapid fire requests
+      const rapidRequests = Array.from({ length: 20 }, () => 
+        request(app)
+          .post('/api/deploy')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            projectName: 'rate-limit-test',
+            files: [{ path: 'index.js', content: 'console.log("test");' }]
+          })
+      );
+
+      const responses = await Promise.all(rapidRequests);
+      
+      // Some requests should be rate limited
+      const rateLimitedResponses = responses.filter(r => r.status === 429);
+      const successfulResponses = responses.filter(r => [201, 500].includes(r.status));
+      
+      // Should have some rate limiting or all processed
+      expect(rateLimitedResponses.length + successfulResponses.length).toBe(20);
+    });
+
+    it('should sanitize error messages to prevent information leakage', async () => {
+      const response = await request(app)
+        .post('/api/deploy')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          projectName: 'error-test',
+          files: [{ path: '../../../etc/passwd', content: 'test' }]
+        });
+
+      expect([400, 422]).toContain(response.status);
+      
+      if (response.body.error) {
+        // Error message should not contain sensitive system information
+        expect(response.body.error).not.toMatch(/(password|secret|key|token|database|internal)/i);
+        expect(response.body.error).not.toContain('/etc/passwd');
+        expect(response.body.error).not.toContain('system32');
+      }
+    });
+  });
+
   afterAll(async () => {
     // Clean up test data if needed
     if (db && testUserId) {

@@ -132,7 +132,7 @@ export class ProjectAnalyzer {
   /**
    * Analyze Manifest project based on manifest.yaml/yml
    */
-  private static analyzeManifestProject(files: ProjectFile[], manifestFile: ProjectFile): ProjectAnalysis {
+  private static analyzeManifestProject(_files: ProjectFile[], manifestFile: ProjectFile): ProjectAnalysis {
     let manifestConfig: ManifestConfig = {};
     
     try {

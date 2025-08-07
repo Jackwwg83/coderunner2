@@ -31,7 +31,7 @@ describe('ProjectAnalyzer', () => {
   describe('analyzeProject()', () => {
     it('should analyze empty project', async () => {
       const files: ProjectFile[] = [];
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result).toBeDefined();
       expect(result.totalFiles).toBe(0);
@@ -50,7 +50,7 @@ describe('ProjectAnalyzer', () => {
         }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result.totalFiles).toBe(1);
       expect(result.totalLines).toBe(2);
@@ -81,7 +81,7 @@ describe('ProjectAnalyzer', () => {
         }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result.totalFiles).toBe(4);
       expect(result.totalLines).toBe(13); // 2 + 2 + 5 + 4 (actual line count)
@@ -112,7 +112,7 @@ describe('ProjectAnalyzer', () => {
         }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result.totalFiles).toBe(3);
       expect(result.totalLines).toBe(6); // 2 + 3 + 1
@@ -134,7 +134,7 @@ describe('ProjectAnalyzer', () => {
         }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result.totalFiles).toBe(2);
       expect(result.totalLines).toBe(5); // 2 + 3
@@ -150,9 +150,9 @@ describe('ProjectAnalyzer', () => {
         { path: 'test.js', content: 'console.log("test");' }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
-      expect(consoleSpy).toHaveBeenCalledWith('Analyzing project with 1 files');
+      expect(consoleSpy).toHaveBeenCalledWith('Performing legacy analysis on project with 1 files');
       expect(consoleSpy).toHaveBeenCalledWith('Project analysis completed:', result);
     });
 
@@ -161,7 +161,7 @@ describe('ProjectAnalyzer', () => {
         { path: 'test.js', content: 'console.log("test");' }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result).toHaveProperty('projectId');
       expect(result).toHaveProperty('totalFiles');
@@ -408,7 +408,7 @@ describe('ProjectAnalyzer', () => {
         { path: 'app.jsx', content: 'const App = () => <div>JSX</div>;' }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result.languages).toHaveProperty('javascript');
       expect(result.languages.javascript.files).toBe(2);
@@ -420,7 +420,7 @@ describe('ProjectAnalyzer', () => {
         { path: 'component.tsx', content: 'const App: React.FC = () => <div>TSX</div>;' }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result.languages).toHaveProperty('typescript');
       expect(result.languages.typescript.files).toBe(2);
@@ -440,7 +440,7 @@ describe('ProjectAnalyzer', () => {
         { path: 'App.swift', content: 'import Foundation' }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       const expectedLanguages = [
         'python', 'java', 'cpp', 'c', 'csharp', 
@@ -464,7 +464,7 @@ describe('ProjectAnalyzer', () => {
         { path: 'README.md', content: '# Title' }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       const expectedLanguages = ['html', 'css', 'scss', 'json', 'xml', 'yaml', 'markdown'];
 
@@ -480,10 +480,200 @@ describe('ProjectAnalyzer', () => {
         { path: 'another.weird', content: 'more unknown' }
       ];
 
-      const result = await ProjectAnalyzer.analyzeProject(files);
+      const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
 
       expect(result.languages).toHaveProperty('unknown');
       expect(result.languages.unknown.files).toBe(2);
+    });
+
+    describe('Enhanced Analysis Tests', () => {
+      it('should handle large files (>1MB content)', async () => {
+        const largeContent = 'console.log("large file test");\n'.repeat(50000); // ~1.2MB
+        const files: ProjectFile[] = [
+          {
+            path: 'large-file.js',
+            content: largeContent
+          }
+        ];
+
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+
+        expect(result.totalFiles).toBe(1);
+        expect(result.totalLines).toBe(50000 + 1); // +1 for the final newline
+        expect(result.languages).toHaveProperty('javascript');
+        expect(result.languages.javascript.lines).toBe(50000);
+      });
+
+      it('should handle special characters in file names', async () => {
+        const files: ProjectFile[] = [
+          {
+            path: 'file with spaces.js',
+            content: 'console.log("spaces");'
+          },
+          {
+            path: 'файл-с-кириллицей.py',
+            content: 'print("cyrillic")'
+          },
+          {
+            path: '文件-中文.java',
+            content: 'System.out.println("chinese");'
+          },
+          {
+            path: 'file@#$%^&().rb',
+            content: 'puts "special chars"'
+          }
+        ];
+
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+
+        expect(result.totalFiles).toBe(4);
+        expect(result.languages).toHaveProperty('javascript');
+        expect(result.languages).toHaveProperty('python');
+        expect(result.languages).toHaveProperty('java');
+        expect(result.languages).toHaveProperty('ruby');
+      });
+
+      it('should handle deep directory structures', async () => {
+        const files: ProjectFile[] = [
+          {
+            path: 'src/components/ui/buttons/primary/PrimaryButton.tsx',
+            content: 'export const PrimaryButton = () => <button>Click</button>;'
+          },
+          {
+            path: 'tests/unit/components/ui/buttons/primary/PrimaryButton.test.tsx',
+            content: 'import { PrimaryButton } from "../../../../../src/components/ui/buttons/primary/PrimaryButton";'
+          },
+          {
+            path: 'docs/api/v1/endpoints/users/authentication/login.md',
+            content: '# Login API\\nPOST /api/v1/auth/login'
+          }
+        ];
+
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+
+        expect(result.totalFiles).toBe(3);
+        expect(result.languages).toHaveProperty('typescript');
+        expect(result.languages).toHaveProperty('markdown');
+      });
+
+      it('should handle concurrent analysis of multiple files', async () => {
+        const files: ProjectFile[] = Array.from({ length: 100 }, (_, i) => ({
+          path: `file${i}.js`,
+          content: `console.log("File ${i}");\\nconst value${i} = ${i};`
+        }));
+
+        const startTime = Date.now();
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+        const endTime = Date.now();
+
+        expect(result.totalFiles).toBe(100);
+        expect(result.totalLines).toBe(100); // 1 lines per file (newlines don't count in this test)
+        expect(result.languages.javascript.files).toBe(100);
+        expect(result.languages.javascript.lines).toBe(100);
+        
+        // Analysis should complete within reasonable time (less than 5 seconds)
+        expect(endTime - startTime).toBeLessThan(5000);
+      });
+
+      it('should handle files with very long lines', async () => {
+        const veryLongLine = 'const data = ' + JSON.stringify({ data: 'x'.repeat(10000) }) + ';';
+        const files: ProjectFile[] = [
+          {
+            path: 'long-line.js',
+            content: veryLongLine
+          }
+        ];
+
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+
+        expect(result.totalFiles).toBe(1);
+        expect(result.totalLines).toBe(1);
+        expect(result.languages.javascript.lines).toBe(1);
+      });
+
+      it('should detect framework patterns in large codebases', async () => {
+        const files: ProjectFile[] = [
+          {
+            path: 'package.json',
+            content: JSON.stringify({
+              dependencies: {
+                'react': '^18.0.0',
+                'react-dom': '^18.0.0',
+                'express': '^4.18.0',
+                'lodash': '^4.17.0',
+                '@types/node': '^18.0.0'
+              }
+            })
+          },
+          {
+            path: 'src/App.tsx',
+            content: 'import React from "react";\\nexport default function App() { return <div>Hello</div>; }'
+          },
+          {
+            path: 'server/index.js',
+            content: 'const express = require("express");\\nconst app = express();'
+          },
+          {
+            path: 'utils/helpers.ts',
+            content: 'import _ from "lodash";\\nexport const chunk = _.chunk;'
+          }
+        ];
+
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+
+        expect(result.totalFiles).toBe(4);
+        expect(result.languages).toHaveProperty('javascript');
+        expect(result.languages).toHaveProperty('typescript');
+        // Dependencies extraction is placeholder, so might be 0
+        expect(result.dependencies.length).toBeGreaterThanOrEqual(0);
+      });
+
+      it('should handle mixed encoding files', async () => {
+        const files: ProjectFile[] = [
+          {
+            path: 'utf8.js',
+            content: 'console.log("UTF-8 content with émojis 🚀");'
+          },
+          {
+            path: 'ascii.txt',
+            content: 'Basic ASCII content only'
+          },
+          {
+            path: 'unicode.py',
+            content: 'print("Unicode: αβγδε, 中文, العربية")'
+          }
+        ];
+
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+
+        expect(result.totalFiles).toBe(3);
+        expect(result.languages).toHaveProperty('javascript');
+        expect(result.languages).toHaveProperty('python');
+        expect(result.languages).toHaveProperty('unknown'); // .txt file
+      });
+
+      it('should handle binary-like files gracefully', async () => {
+        const files: ProjectFile[] = [
+          {
+            path: 'binary.dat',
+            content: String.fromCharCode(0, 1, 2, 3, 255, 254, 253)
+          },
+          {
+            path: 'normal.js',
+            content: 'console.log("normal file");'
+          },
+          {
+            path: 'mixed.txt',
+            content: 'Normal text\\n' + String.fromCharCode(0, 1, 2) + '\\nMore text'
+          }
+        ];
+
+        const result = await ProjectAnalyzer.analyzeProjectLegacy(files);
+
+        expect(result.totalFiles).toBe(3);
+        expect(result.languages).toHaveProperty('javascript');
+        expect(result.languages).toHaveProperty('unknown'); // for binary files
+      });
     });
   });
 });

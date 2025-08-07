@@ -3,9 +3,7 @@ import {
   ExecutionResult, 
   ExecutionStatus, 
   DeploymentStatus,
-  Deployment,
   CreateDeploymentInput,
-  UpdateDeploymentInput,
   ProjectFile 
 } from '../types/index';
 import { Sandbox, SandboxError, TimeoutError, NotFoundError } from 'agentsphere-js';
@@ -13,17 +11,11 @@ import { DatabaseService } from './database';
 import { ProjectAnalyzer, ProjectAnalysis } from '../utils/analyzer';
 import { ManifestEngine } from './manifestEngine';
 import { EventEmitter } from 'events';
-import { loadOrchestrationConfig, TimeoutConfig } from '../config/orchestration';
+import { loadOrchestrationConfig } from '../config/orchestration';
 
 /**
  * Deployment timeout strategies based on project type and complexity
  */
-interface TimeoutStrategy {
-  initial: number;      // Initial timeout in seconds
-  extension: number;    // Extension timeout in seconds
-  maximum: number;      // Maximum allowed timeout
-  healthCheck: number;  // Health check interval in seconds
-}
 
 /**
  * Sandbox resource limits and monitoring

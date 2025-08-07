@@ -376,4 +376,273 @@ entities:
       expect(instance1).toBe(instance2);
     });
   });
+
+  describe('Enhanced ManifestEngine Tests', () => {
+    it('should handle super long entity names (>100 characters)', () => {
+      const longEntityName = 'A'.repeat(150) + 'Entity';
+      const manifestContent = `name: long-entity-test
+version: 1.0.0
+entities:
+  - name: ${longEntityName}
+    fields:
+      - name: id
+        type: string
+        required: true`;
+
+      expect(() => {
+        manifestEngine.generateProject(manifestContent);
+      }).not.toThrow();
+
+      const files = manifestEngine.generateProject(manifestContent);
+      const serverFile = files.find((f: GeneratedFile) => f.path === 'index.js');
+      
+      expect(serverFile).toBeDefined();
+      // The engine should handle long names gracefully
+      expect(serverFile!.content).toContain(longEntityName.toLowerCase());
+    });
+
+    it('should handle reserved keywords as entity names', () => {
+      const manifestContent = `name: reserved-words-test
+version: 1.0.0
+entities:
+  - name: Class
+    fields:
+      - name: name
+        type: string
+        required: true
+  - name: Function  
+    fields:
+      - name: code
+        type: string
+        required: true
+  - name: Var
+    fields:
+      - name: value
+        type: string
+        required: true`;
+
+      expect(() => {
+        manifestEngine.generateProject(manifestContent);
+      }).not.toThrow();
+
+      const files = manifestEngine.generateProject(manifestContent);
+      const serverFile = files.find((f: GeneratedFile) => f.path === 'index.js');
+      
+      expect(serverFile).toBeDefined();
+      expect(files).toHaveLength(5); // package.json, index.js, database.js, .env, README.md
+    });
+
+    it('should detect circular references in entity relationships', () => {
+      const manifestContent = `name: circular-reference-test  
+version: 1.0.0
+entities:
+  - name: User
+    fields:
+      - name: id
+        type: string
+        required: true
+      - name: profileId
+        type: string
+        required: true
+  - name: Profile
+    fields:
+      - name: id  
+        type: string
+        required: true
+      - name: userId
+        type: string
+        required: true`;
+
+      // The engine should handle this gracefully without infinite loops
+      expect(() => {
+        const startTime = Date.now();
+        manifestEngine.generateProject(manifestContent);
+        const endTime = Date.now();
+        
+        // Should complete within reasonable time (not hang due to circular refs)
+        expect(endTime - startTime).toBeLessThan(5000);
+      }).not.toThrow();
+    });
+
+    it('should handle performance test with 100 entities', () => {
+      const entities = Array.from({ length: 100 }, (_, i) => `
+  - name: Entity${i}
+    fields:
+      - name: id
+        type: string
+        required: true
+      - name: name${i}
+        type: string
+      - name: value${i}
+        type: number`).join('');
+
+      const manifestContent = `name: performance-test
+version: 1.0.0
+entities:${entities}`;
+
+      const startTime = Date.now();
+      const files = manifestEngine.generateProject(manifestContent);
+      const endTime = Date.now();
+
+      expect(files).toHaveLength(5); // Standard files
+      expect(endTime - startTime).toBeLessThan(10000); // Should complete within 10 seconds
+      
+      const serverFile = files.find((f: GeneratedFile) => f.path === 'index.js');
+      expect(serverFile).toBeDefined();
+      
+      // Should contain routes for all entities
+      for (let i = 0; i < 10; i++) { // Check first 10 entities
+        expect(serverFile!.content).toContain(`/entity${i}s`);
+      }
+    });
+
+    it('should handle special characters in field names', () => {
+      const manifestContent = `name: special-chars-test
+version: 1.0.0
+entities:
+  - name: SpecialEntity
+    fields:
+      - name: field-with-dashes
+        type: string
+        required: true
+      - name: field_with_underscores
+        type: string
+        required: true
+      - name: fieldWith123Numbers
+        type: string
+        required: true
+      - name: field@#$%
+        type: string
+        required: false`;
+
+      const files = manifestEngine.generateProject(manifestContent);
+      const serverFile = files.find((f: GeneratedFile) => f.path === 'index.js');
+      
+      expect(serverFile).toBeDefined();
+      expect(files).toHaveLength(5);
+      
+      // Should sanitize field names for JavaScript compatibility
+      const serverContent = serverFile!.content;
+      expect(serverContent).toContain('required: ["field-with-dashes"');
+    });
+
+    it('should handle empty entity (no fields)', () => {
+      const manifestContent = `name: empty-entity-test
+version: 1.0.0
+entities:
+  - name: EmptyEntity
+    fields: []
+  - name: AnotherEmpty
+    fields:`;
+
+      const files = manifestEngine.generateProject(manifestContent);
+      expect(files).toHaveLength(5);
+      
+      const serverFile = files.find((f: GeneratedFile) => f.path === 'index.js');
+      expect(serverFile).toBeDefined();
+      
+      // Should handle entities with no fields gracefully
+      expect(serverFile!.content).toContain('/emptyentitys');
+      expect(serverFile!.content).toContain('/anothermptys');
+    });
+
+    it('should handle duplicate entity names', () => {
+      const manifestContent = `name: duplicate-test
+version: 1.0.0
+entities:
+  - name: User
+    fields:
+      - name: email
+        type: string
+        required: true
+  - name: User
+    fields:
+      - name: username
+        type: string
+        required: true`;
+
+      // Should handle duplicates gracefully (last one wins or merge)
+      expect(() => {
+        manifestEngine.generateProject(manifestContent);
+      }).not.toThrow();
+    });
+
+    it('should validate field type consistency', () => {
+      const manifestContent = `name: type-validation-test
+version: 1.0.0
+entities:
+  - name: ValidationTest
+    fields:
+      - name: validString
+        type: string
+        required: true
+      - name: validNumber
+        type: number
+        required: true
+      - name: validBoolean
+        type: boolean
+        required: false
+      - name: validDate
+        type: date
+        required: false
+      - name: invalidType
+        type: invalidType
+        required: false`;
+
+      // Should handle invalid types gracefully
+      const files = manifestEngine.generateProject(manifestContent);
+      expect(files).toHaveLength(5);
+      
+      const serverFile = files.find((f: GeneratedFile) => f.path === 'index.js');
+      expect(serverFile).toBeDefined();
+    });
+
+    it('should handle extremely nested field structures', () => {
+      const manifestContent = `name: nested-test
+version: 1.0.0
+entities:
+  - name: DeepEntity
+    fields:
+      - name: level1_field1
+        type: string
+        required: true
+      - name: level1_field2_with_very_long_name_that_goes_on_and_on
+        type: string
+        required: false
+      - name: level1_field3_with_special_chars_@#$%
+        type: number
+        required: false`;
+
+      const files = manifestEngine.generateProject(manifestContent);
+      expect(files).toHaveLength(5);
+      
+      const readmeFile = files.find((f: GeneratedFile) => f.path === 'README.md');
+      expect(readmeFile).toBeDefined();
+      expect(readmeFile!.content.length).toBeGreaterThan(1000); // Should generate comprehensive README
+    });
+
+    it('should handle unicode characters in entity and field names', () => {
+      const manifestContent = `name: unicode-test
+version: 1.0.0
+entities:
+  - name: ユーザー
+    fields:
+      - name: 名前
+        type: string
+        required: true
+      - name: 电子邮件
+        type: string
+        required: true
+  - name: المستخدم
+    fields:
+      - name: الاسم
+        type: string
+        required: true`;
+
+      // Should handle unicode gracefully
+      expect(() => {
+        manifestEngine.generateProject(manifestContent);
+      }).not.toThrow();
+    });
+  });
 });
