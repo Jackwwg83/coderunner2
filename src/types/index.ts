@@ -4,8 +4,12 @@ import { Request } from 'express';
 export interface User {
   id: string; // UUID
   email: string;
-  password_hash: string;
+  password_hash?: string; // Optional for OAuth users
   plan_type: string; // 'free', 'personal', 'team'
+  name?: string; // Display name from OAuth or manual entry
+  avatar_url?: string; // Profile picture URL
+  oauth_provider?: string; // OAuth provider (google, github, etc.)
+  oauth_id?: string; // OAuth provider user ID
   created_at: Date;
   updated_at: Date;
 }
@@ -63,6 +67,8 @@ export interface JWTPayload {
   exp?: number;
   iss?: string;
   aud?: string;
+  jti?: string; // JWT ID for tracking
+  type?: 'access' | 'refresh';
 }
 
 // Authentication Types
@@ -82,6 +88,7 @@ export interface AuthResponse {
   data?: {
     user: Omit<User, 'password_hash'>;
     token: string;
+    refreshToken?: string;
     expiresAt: Date;
   };
   error?: string;
@@ -350,14 +357,22 @@ export interface DatabaseQueryResult<T = any> {
 // Database Service Input Types
 export interface CreateUserInput {
   email: string;
-  password_hash: string;
+  password_hash?: string; // Optional for OAuth users
   plan_type?: string;
+  name?: string;
+  avatar_url?: string;
+  oauth_provider?: string;
+  oauth_id?: string;
 }
 
 export interface UpdateUserInput {
   email?: string;
   password_hash?: string;
   plan_type?: string;
+  name?: string;
+  avatar_url?: string;
+  oauth_provider?: string;
+  oauth_id?: string;
 }
 
 export interface CreateProjectInput {
@@ -454,13 +469,23 @@ export interface WebSocketMessage {
   timestamp: Date;
   userId?: string;
   requestId?: string;
+  deploymentId?: string;
 }
+
+// Re-export WebSocket-specific types
+export * from './websocket';
 
 // Manifest Engine Types
 export interface ManifestConfig {
   name: string;
   version?: string;
+  description?: string;
   entities: ManifestEntity[];
+  endpoints?: any[];
+  environment?: any;
+  authentication?: ManifestAuth;
+  database?: ManifestDatabase;
+  middleware?: string[];
 }
 
 export interface ManifestEntity {
@@ -470,11 +495,228 @@ export interface ManifestEntity {
 
 export interface ManifestField {
   name: string;
-  type: 'string' | 'number' | 'boolean' | 'date';
+  type: 'text' | 'longtext' | 'number' | 'boolean' | 'date' | 'datetime' | 'email' | 'url' | 'enum' | 'array' | 'reference';
   required?: boolean;
+  unique?: boolean;
+  min?: number;
+  max?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  enumValues?: string[];
+  defaultValue?: any;
+  reference?: string; // For reference fields
+  description?: string;
+}
+
+export interface ManifestAuth {
+  enabled: boolean;
+  type: 'jwt' | 'basic' | 'oauth';
+  secretKey?: string;
+  expiresIn?: string;
+  protectedRoutes?: string[];
+}
+
+export interface ManifestDatabase {
+  type: 'lowdb' | 'sqlite' | 'memory';
+  path?: string;
+  options?: any;
+}
+
+export interface ManifestValidationError {
+  field: string;
+  message: string;
+  value?: any;
+  constraint?: string;
+}
+
+export interface ManifestTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'web' | 'api' | 'mobile' | 'enterprise';
+  manifest: ManifestConfig;
+  tags: string[];
+  complexity: 'simple' | 'moderate' | 'complex';
+  estimatedTime: string;
 }
 
 export interface GeneratedFile {
   path: string;
   content: string;
+}
+
+// Configuration Management Types (P2-T04)
+export interface EnvironmentConfig {
+  id: string;
+  projectId: string;
+  environment: 'development' | 'staging' | 'production';
+  name: string;
+  description?: string;
+  variables: EnvironmentVariable[];
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EnvironmentVariable {
+  id: string;
+  configId: string;
+  key: string;
+  value: string;
+  isEncrypted: boolean;
+  isRequired: boolean;
+  description?: string;
+  variableType: 'string' | 'number' | 'boolean' | 'secret' | 'url' | 'json';
+  defaultValue?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ConfigTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  framework?: string;
+  isOfficial: boolean;
+  usageCount: number;
+  templateData: {
+    variables: TemplateVariable[];
+    environments: string[];
+    framework?: string;
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TemplateVariable {
+  key: string;
+  description: string;
+  variableType: 'string' | 'number' | 'boolean' | 'secret' | 'url' | 'json';
+  defaultValue?: string;
+  isRequired: boolean;
+  isEncrypted?: boolean;
+  environments: string[];
+}
+
+export interface ConfigAuditLog {
+  id: string;
+  userId: string;
+  projectId: string;
+  configId?: string;
+  variableId?: string;
+  action: 'create' | 'update' | 'delete' | 'export' | 'import' | 'apply_template';
+  resourceType: 'config' | 'variable' | 'template';
+  changes?: any;
+  metadata?: any;
+  timestamp: Date;
+}
+
+export interface CreateEnvironmentConfigRequest {
+  environment: 'development' | 'staging' | 'production';
+  name: string;
+  description?: string;
+  isActive?: boolean;
+}
+
+export interface CreateEnvironmentVariableRequest {
+  key: string;
+  value: string;
+  isEncrypted?: boolean;
+  isRequired?: boolean;
+  description?: string;
+  variableType?: 'string' | 'number' | 'boolean' | 'secret' | 'url' | 'json';
+  defaultValue?: string | undefined;
+}
+
+export interface ApplyTemplateRequest {
+  templateId: string;
+  environment: 'development' | 'staging' | 'production';
+  overrides: Record<string, string>;
+}
+
+export interface ConfigurationDeploymentData {
+  variables: Record<string, string>;
+  environment: string;
+  lastUpdated: Date;
+}
+
+// P3-T01 PostgreSQL Template Types
+export interface DatabaseTemplate {
+  id: string;
+  name: string;
+  type: 'postgresql' | 'mysql' | 'mongodb' | 'redis';
+  version: string;
+  description: string;
+  configuration: any; // Template-specific configuration
+  environment: 'development' | 'staging' | 'production';
+  created_at: Date;
+  updated_at: Date;
+  deployed_at?: Date;
+  status: 'pending' | 'deploying' | 'deployed' | 'failed' | 'destroyed';
+}
+
+export interface DatabaseDeployment {
+  id: string;
+  template_id: string;
+  instance_id: string;
+  connection_string: string;
+  admin_connection_string?: string;
+  endpoint: string;
+  port: number;
+  status: 'creating' | 'available' | 'maintenance' | 'failed' | 'deleting';
+  deployment_time: number;
+  resource_usage: {
+    cpu_cores: number;
+    memory_mb: number;
+    storage_gb: number;
+    network_throughput: number;
+  };
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface DatabaseTenant {
+  id: string;
+  deployment_id: string;
+  tenant_id: string;
+  schema_name?: string;
+  database_name?: string;
+  isolation_type: 'schema' | 'database' | 'row';
+  resource_limits: {
+    max_connections: number;
+    storage_quota_mb: number;
+    cpu_quota_percent: number;
+  };
+  status: 'active' | 'suspended' | 'migrating' | 'deleting';
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface DatabaseBackup {
+  id: string;
+  deployment_id: string;
+  backup_id: string;
+  type: 'full' | 'incremental' | 'differential';
+  size_bytes: number;
+  status: 'creating' | 'completed' | 'failed' | 'restoring';
+  encryption_enabled: boolean;
+  compression: 'none' | 'gzip' | 'lz4';
+  storage_location: string;
+  created_at: Date;
+  expires_at: Date;
+}
+
+export interface DatabaseMetrics {
+  deployment_id: string;
+  timestamp: Date;
+  cpu_usage_percent: number;
+  memory_usage_percent: number;
+  storage_usage_percent: number;
+  connections_active: number;
+  connections_max: number;
+  queries_per_second: number;
+  slow_queries_count: number;
+  replication_lag_ms?: number;
 }

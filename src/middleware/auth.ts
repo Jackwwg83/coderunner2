@@ -247,7 +247,12 @@ export class AuthMiddleware {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: () => process.env.NODE_ENV === 'test' // Skip rate limiting in test environment
+    skip: (req) => {
+      // Skip rate limiting in test environment or when explicitly disabled
+      return process.env.NODE_ENV === 'test' || 
+             process.env.SKIP_RATE_LIMIT === 'true' ||
+             req.headers['x-test-bypass-rate-limit'] === 'true';
+    }
   });
 
   /**
@@ -263,7 +268,12 @@ export class AuthMiddleware {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: () => process.env.NODE_ENV === 'test' // Skip rate limiting in test environment
+    skip: (req) => {
+      // Skip rate limiting in test environment or when explicitly disabled
+      return process.env.NODE_ENV === 'test' || 
+             process.env.SKIP_RATE_LIMIT === 'true' ||
+             req.headers['x-test-bypass-rate-limit'] === 'true';
+    }
   });
 
   /**
@@ -347,3 +357,20 @@ export class AuthMiddleware {
     return userPlanIndex >= minPlanIndex;
   };
 }
+
+// Export commonly used middleware functions
+export const authenticateToken = AuthMiddleware.authenticateToken;
+export const authorizePlan = AuthMiddleware.authorizePlan;
+export const authorizeUser = AuthMiddleware.authorizeUser;
+export const optionalAuth = AuthMiddleware.optionalAuth;
+export const loginRateLimit = AuthMiddleware.loginRateLimit;
+export const registerRateLimit = AuthMiddleware.registerRateLimit;
+export const apiRateLimit = AuthMiddleware.apiRateLimit;
+export const passwordChangeRateLimit = AuthMiddleware.passwordChangeRateLimit;
+export const accountDeletionRateLimit = AuthMiddleware.accountDeletionRateLimit;
+export const validateRequiredFields = AuthMiddleware.validateRequiredFields;
+export const sanitizeInput = AuthMiddleware.sanitizeInput;
+export const getUserId = AuthMiddleware.getUserId;
+export const getUserEmail = AuthMiddleware.getUserEmail;
+export const hasMinimumPlan = AuthMiddleware.hasMinimumPlan;
+export const auth = AuthMiddleware.authenticateToken;

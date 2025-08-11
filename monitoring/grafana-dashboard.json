@@ -1,0 +1,276 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "CodeRunner Production Monitoring",
+    "tags": ["coderunner", "production", "monitoring"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "coderunner_system_cpu_usage_percent{core=\"total\"}",
+            "legendFormat": "CPU Usage %"
+          },
+          {
+            "expr": "coderunner_system_memory_usage_bytes{type=\"usage_percent\"}",
+            "legendFormat": "Memory Usage %"
+          },
+          {
+            "expr": "sum(coderunner_deployments_total)",
+            "legendFormat": "Total Deployments"
+          },
+          {
+            "expr": "coderunner_websocket_connections_total{status=\"total\"}",
+            "legendFormat": "WebSocket Connections"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "CPU Usage Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "coderunner_system_cpu_usage_percent{core=\"total\"}",
+            "legendFormat": "CPU Usage %"
+          },
+          {
+            "expr": "coderunner_system_load_average{period=\"1m\"} * 100 / 4",
+            "legendFormat": "Load Average (normalized)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "fillOpacity": 10
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 3,
+        "title": "Memory Usage Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "coderunner_system_memory_usage_bytes{type=\"usage_percent\"}",
+            "legendFormat": "Memory Usage %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "fillOpacity": 20
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "API Request Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(coderunner_api_requests_total[5m])) by (endpoint)",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear"
+            },
+            "unit": "reqps"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 5,
+        "title": "API Response Times",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(coderunner_api_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "50th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(coderunner_api_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(coderunner_api_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "99th percentile"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 6,
+        "title": "Deployment Status Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum(coderunner_deployments_total) by (status)",
+            "legendFormat": "{{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24}
+      },
+      {
+        "id": 7,
+        "title": "Deployment Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(coderunner_deployments_total{status=\"RUNNING\"}) / sum(coderunner_deployments_total) * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 80},
+                {"color": "green", "value": 95}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24}
+      },
+      {
+        "id": 8,
+        "title": "WebSocket Connections",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "coderunner_websocket_connections_total{status=\"total\"}",
+            "legendFormat": "Total Connections"
+          },
+          {
+            "expr": "coderunner_websocket_connections_total{status=\"authenticated\"}",
+            "legendFormat": "Authenticated"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24}
+      },
+      {
+        "id": 9,
+        "title": "Error Rate by Service",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(coderunner_errors_total[5m])) by (service)",
+            "legendFormat": "{{service}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "errors/sec",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
+      },
+      {
+        "id": 10,
+        "title": "Health Check Status",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "coderunner_health_check_status",
+            "legendFormat": "{{service}}",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "displayMode": "color-background"
+            },
+            "mappings": [
+              {
+                "options": {
+                  "0": {"text": "Unhealthy", "color": "red"},
+                  "1": {"text": "Healthy", "color": "green"},
+                  "0.5": {"text": "Degraded", "color": "yellow"}
+                },
+                "type": "value"
+              }
+            ]
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
+      },
+      {
+        "id": 11,
+        "title": "Resource Usage Costs",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(coderunner_resource_costs_total[1h])) by (resource_type)",
+            "legendFormat": "{{resource_type}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 40}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "schemaVersion": 30,
+    "version": 1,
+    "uid": "coderunner-production"
+  }
+}

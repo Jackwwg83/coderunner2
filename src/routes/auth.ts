@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import AuthService from '../services/auth';
+import OAuthService from '../services/oauth';
 import { AuthMiddleware } from '../middleware/auth';
 import { 
   AuthError, 
@@ -8,9 +9,12 @@ import {
   PasswordChangeRequest,
   ApiResponse 
 } from '../types';
+import { User } from '../types';
 
 const router = Router();
 const authService = AuthService.getInstance();
+const oauthService = OAuthService.getInstance();
+const passport = oauthService.getPassport();
 
 // Apply general rate limiting to all auth routes
 router.use(AuthMiddleware.apiRateLimit);
@@ -156,6 +160,48 @@ router.get('/me',
         });
       } else {
         console.error('Get user error:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Internal server error',
+          code: 'INTERNAL_SERVER_ERROR',
+          timestamp: new Date()
+        });
+      }
+    }
+  }
+);
+
+/**
+ * GET /api/auth/profile
+ * Get user profile (alias for /me endpoint to match test expectations)
+ */
+router.get('/profile',
+  AuthMiddleware.authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization!;
+      const token = authHeader.split(' ')[1];
+      
+      const user = await authService.getCurrentUser(token);
+      
+      const response: ApiResponse = {
+        success: true,
+        data: { user },
+        message: 'User profile retrieved successfully',
+        timestamp: new Date()
+      };
+      
+      res.status(200).json(response);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        res.status(error.statusCode).json({
+          success: false,
+          error: error.message,
+          code: error.code,
+          timestamp: new Date()
+        });
+      } else {
+        console.error('Profile retrieval error:', error);
         res.status(500).json({
           success: false,
           error: 'Internal server error',
@@ -430,5 +476,130 @@ router.get('/token-info',
     }
   }
 );
+
+// ========================================
+// OAuth Routes
+// ========================================
+
+/**
+ * GET /api/auth/google
+ * Initiate Google OAuth flow
+ */
+router.get('/google',
+  passport.authenticate('google', { 
+    scope: ['profile', 'email'] 
+  })
+);
+
+/**
+ * GET /api/auth/google/callback
+ * Google OAuth callback handler
+ */
+router.get('/google/callback',
+  (req: Request, res: Response, next) => {
+    passport.authenticate('google', { session: false }, (err, user) => {
+      if (err) {
+        console.error('Google OAuth error:', err);
+        const callbackURL = oauthService.buildCallbackURL('', err.message || 'Authentication failed');
+        return res.redirect(callbackURL);
+      }
+
+      if (!user) {
+        const callbackURL = oauthService.buildCallbackURL('', 'Authentication failed');
+        return res.redirect(callbackURL);
+      }
+
+      try {
+        // Generate JWT token for the user
+        const token = oauthService.generateOAuthToken(user as User);
+        const callbackURL = oauthService.buildCallbackURL(token);
+        res.redirect(callbackURL);
+      } catch (error) {
+        console.error('Token generation error:', error);
+        const callbackURL = oauthService.buildCallbackURL('', 'Token generation failed');
+        res.redirect(callbackURL);
+      }
+    })(req, res, next);
+  }
+);
+
+/**
+ * GET /api/auth/github
+ * Initiate GitHub OAuth flow
+ */
+router.get('/github',
+  passport.authenticate('github', { 
+    scope: ['user:email'] 
+  })
+);
+
+/**
+ * GET /api/auth/github/callback
+ * GitHub OAuth callback handler
+ */
+router.get('/github/callback',
+  (req: Request, res: Response, next) => {
+    passport.authenticate('github', { session: false }, (err, user) => {
+      if (err) {
+        console.error('GitHub OAuth error:', err);
+        const callbackURL = oauthService.buildCallbackURL('', err.message || 'Authentication failed');
+        return res.redirect(callbackURL);
+      }
+
+      if (!user) {
+        const callbackURL = oauthService.buildCallbackURL('', 'Authentication failed');
+        return res.redirect(callbackURL);
+      }
+
+      try {
+        // Generate JWT token for the user
+        const token = oauthService.generateOAuthToken(user as User);
+        const callbackURL = oauthService.buildCallbackURL(token);
+        res.redirect(callbackURL);
+      } catch (error) {
+        console.error('Token generation error:', error);
+        const callbackURL = oauthService.buildCallbackURL('', 'Token generation failed');
+        res.redirect(callbackURL);
+      }
+    })(req, res, next);
+  }
+);
+
+/**
+ * GET /api/auth/providers
+ * Get available OAuth providers
+ */
+router.get('/providers', (req: Request, res: Response) => {
+  try {
+    const providers = oauthService.getAvailableProviders();
+    
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        providers,
+        google: {
+          available: providers.includes('google'),
+          url: providers.includes('google') ? '/api/auth/google' : null
+        },
+        github: {
+          available: providers.includes('github'),
+          url: providers.includes('github') ? '/api/auth/github' : null
+        }
+      },
+      message: 'Available OAuth providers',
+      timestamp: new Date()
+    };
+    
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('Providers endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      code: 'INTERNAL_SERVER_ERROR',
+      timestamp: new Date()
+    });
+  }
+});
 
 export default router;

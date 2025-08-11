@@ -1,0 +1,158 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "dynamicRoutes": [
+    {
+      "page": "/databases/[id]",
+      "regex": "^/databases/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/databases/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/deployments/[id]",
+      "regex": "^/deployments/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/deployments/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/editor/[deploymentId]",
+      "regex": "^/editor/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPdeploymentId": "nxtPdeploymentId"
+      },
+      "namedRegex": "^/editor/(?<nxtPdeploymentId>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/agent-network",
+      "regex": "^/agent\\-network(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/agent\\-network(?:/)?$"
+    },
+    {
+      "page": "/auth",
+      "regex": "^/auth(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/auth(?:/)?$"
+    },
+    {
+      "page": "/billing",
+      "regex": "^/billing(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/billing(?:/)?$"
+    },
+    {
+      "page": "/command-center",
+      "regex": "^/command\\-center(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/command\\-center(?:/)?$"
+    },
+    {
+      "page": "/databases",
+      "regex": "^/databases(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/databases(?:/)?$"
+    },
+    {
+      "page": "/databases/deploy",
+      "regex": "^/databases/deploy(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/databases/deploy(?:/)?$"
+    },
+    {
+      "page": "/deploy/new",
+      "regex": "^/deploy/new(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/deploy/new(?:/)?$"
+    },
+    {
+      "page": "/deployments",
+      "regex": "^/deployments(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/deployments(?:/)?$"
+    },
+    {
+      "page": "/intelligence",
+      "regex": "^/intelligence(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/intelligence(?:/)?$"
+    },
+    {
+      "page": "/operations",
+      "regex": "^/operations(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/operations(?:/)?$"
+    },
+    {
+      "page": "/projects",
+      "regex": "^/projects(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/projects(?:/)?$"
+    },
+    {
+      "page": "/settings",
+      "regex": "^/settings(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/settings(?:/)?$"
+    },
+    {
+      "page": "/systems",
+      "regex": "^/systems(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/systems(?:/)?$"
+    },
+    {
+      "page": "/team",
+      "regex": "^/team(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/team(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "RSC",
+    "varyHeader": "RSC, Next-Router-State-Tree, Next-Router-Prefetch, Next-Router-Segment-Prefetch",
+    "prefetchHeader": "Next-Router-Prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "Next-Router-Segment-Prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments"
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  },
+  "rewrites": []
+}

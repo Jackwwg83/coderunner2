@@ -1,0 +1,464 @@
+name: Manual Test Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - unit
+        - integration
+        - e2e
+        - performance
+        - security
+      
+      browser:
+        description: 'Browser for E2E tests (if applicable)'
+        required: false
+        default: 'chromium'
+        type: choice
+        options:
+        - chromium
+        - firefox
+        - webkit
+        - all
+      
+      environment:
+        description: 'Environment to test against'
+        required: false
+        default: 'test'
+        type: choice
+        options:
+        - test
+        - staging
+        - production
+      
+      coverage_threshold:
+        description: 'Minimum coverage percentage'
+        required: false
+        default: '80'
+        type: string
+      
+      debug_mode:
+        description: 'Enable debug logging'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  # Unit Tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    if: inputs.test_type == 'all' || inputs.test_type == 'unit'
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: coderunner_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup test environment
+      run: |
+        cp .env.example .env.test
+        echo "DATABASE_URL=postgres://test:test@localhost:5432/coderunner_test" >> .env.test
+        echo "NODE_ENV=test" >> .env.test
+        echo "JWT_SECRET=test-jwt-secret-for-manual" >> .env.test
+        echo "ENCRYPTION_KEY=test-encryption-key-32-characters" >> .env.test
+        
+        if [ "${{ inputs.debug_mode }}" == "true" ]; then
+          echo "TEST_DEBUG=true" >> .env.test
+          echo "LOG_LEVEL=debug" >> .env.test
+        fi
+
+    - name: Run database migrations
+      run: npm run migrate
+      env:
+        NODE_ENV: test
+
+    - name: Run unit tests with coverage
+      run: npm run test:coverage -- --coverage-threshold ${{ inputs.coverage_threshold }}
+      env:
+        NODE_ENV: test
+
+    - name: Upload unit test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-test-results
+        path: |
+          coverage/
+          test-results/
+        retention-days: 7
+
+  # Integration Tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    if: inputs.test_type == 'all' || inputs.test_type == 'integration'
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: coderunner_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup test environment
+      run: |
+        cp .env.example .env.test
+        echo "DATABASE_URL=postgres://test:test@localhost:5432/coderunner_test" >> .env.test
+        echo "NODE_ENV=test" >> .env.test
+        echo "JWT_SECRET=test-jwt-secret-for-manual" >> .env.test
+        echo "ENCRYPTION_KEY=test-encryption-key-32-characters" >> .env.test
+        
+        if [ "${{ inputs.debug_mode }}" == "true" ]; then
+          echo "TEST_DEBUG=true" >> .env.test
+          echo "LOG_LEVEL=debug" >> .env.test
+        fi
+
+    - name: Run database migrations
+      run: npm run migrate
+      env:
+        NODE_ENV: test
+
+    - name: Run integration tests
+      run: npm run test:integration
+      env:
+        NODE_ENV: test
+
+    - name: Run WebSocket tests
+      run: npm run test:websocket
+      env:
+        NODE_ENV: test
+
+    - name: Upload integration test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-test-results
+        path: |
+          test-results/
+          coverage/
+        retention-days: 7
+
+  # E2E Tests
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    if: inputs.test_type == 'all' || inputs.test_type == 'e2e'
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: coderunner_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    strategy:
+      matrix:
+        browser: ${{ inputs.browser == 'all' && fromJson('["chromium", "firefox", "webkit"]') || fromJson(format('["{0}"]', inputs.browser)) }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps ${{ matrix.browser }}
+
+    - name: Setup test environment
+      run: |
+        cp .env.example .env.test
+        echo "DATABASE_URL=postgres://test:test@localhost:5432/coderunner_test" >> .env.test
+        echo "NODE_ENV=test" >> .env.test
+        echo "JWT_SECRET=test-jwt-secret-for-manual" >> .env.test
+        echo "ENCRYPTION_KEY=test-encryption-key-32-characters" >> .env.test
+        
+        if [ "${{ inputs.debug_mode }}" == "true" ]; then
+          echo "TEST_DEBUG=true" >> .env.test
+          echo "LOG_LEVEL=debug" >> .env.test
+        fi
+
+    - name: Run database migrations
+      run: npm run migrate
+      env:
+        NODE_ENV: test
+
+    - name: Start application
+      run: |
+        npm run build
+        npm run start &
+        sleep 10
+      env:
+        NODE_ENV: test
+        PORT: 3000
+
+    - name: Wait for application
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:3000/health; do sleep 2; done'
+
+    - name: Run E2E tests
+      run: |
+        if [ "${{ inputs.debug_mode }}" == "true" ]; then
+          npx playwright test --project=${{ matrix.browser }} --headed --debug
+        else
+          npx playwright test --project=${{ matrix.browser }}
+        fi
+      env:
+        BASE_URL: http://localhost:3000
+
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: e2e-results-${{ matrix.browser }}
+        path: |
+          test-results/
+          playwright-report/
+        retention-days: 7
+
+  # Performance Tests
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    if: inputs.test_type == 'all' || inputs.test_type == 'performance'
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: coderunner_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup performance test environment
+      run: |
+        cp .env.example .env.test
+        echo "DATABASE_URL=postgres://test:test@localhost:5432/coderunner_test" >> .env.test
+        echo "NODE_ENV=production" >> .env.test
+        echo "JWT_SECRET=test-jwt-secret-for-manual" >> .env.test
+        echo "ENCRYPTION_KEY=test-encryption-key-32-characters" >> .env.test
+
+    - name: Run database migrations
+      run: npm run migrate
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgres://test:test@localhost:5432/coderunner_test
+
+    - name: Start application in production mode
+      run: |
+        npm run build
+        NODE_ENV=production npm run start &
+        sleep 15
+      env:
+        PORT: 3000
+        DATABASE_URL: postgres://test:test@localhost:5432/coderunner_test
+
+    - name: Wait for application
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:3000/health; do sleep 2; done'
+
+    - name: Create test user for performance tests
+      run: |
+        TEST_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/register \
+          -H "Content-Type: application/json" \
+          -d '{"name":"Performance Test User","email":"perftest@example.com","password":"PerfTest123!"}' \
+          | jq -r '.token')
+        echo "TEST_AUTH_TOKEN=$TEST_TOKEN" >> $GITHUB_ENV
+
+    - name: Run API performance tests
+      run: npm run test:performance
+      env:
+        TARGET_URL: http://localhost:3000
+        TEST_AUTH_TOKEN: ${{ env.TEST_AUTH_TOKEN }}
+
+    - name: Run WebSocket performance tests
+      run: npx artillery run tests/performance/websocket-load-test.yml
+      env:
+        TARGET_URL: ws://localhost:3000
+        TEST_AUTH_TOKEN: ${{ env.TEST_AUTH_TOKEN }}
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-test-results
+        path: |
+          artillery-results/
+          performance-reports/
+        retention-days: 14
+
+  # Security Tests
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    if: inputs.test_type == 'all' || inputs.test_type == 'security'
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run security audit
+      run: |
+        echo "# Security Audit Results" >> security-report.md
+        echo "## NPM Audit" >> security-report.md
+        npm audit --audit-level=high --json > npm-audit.json || true
+        if [ -s npm-audit.json ]; then
+          echo "Found security issues:" >> security-report.md
+          cat npm-audit.json >> security-report.md
+        else
+          echo "No high-severity vulnerabilities found." >> security-report.md
+        fi
+
+    - name: Run OWASP dependency check
+      run: |
+        echo "## OWASP Dependency Check" >> security-report.md
+        # This would normally run OWASP dependency check
+        echo "OWASP dependency check placeholder - implement based on your needs" >> security-report.md
+
+    - name: Upload security results
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-test-results
+        path: |
+          security-report.md
+          npm-audit.json
+        retention-days: 14
+
+  # Test Results Summary
+  manual-test-summary:
+    name: Manual Test Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [unit-tests, integration-tests, e2e-tests, performance-tests, security-tests]
+
+    steps:
+    - name: Generate manual test summary
+      run: |
+        echo "# 🧪 Manual Test Execution Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Test Type**: ${{ inputs.test_type }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Debug Mode**: ${{ inputs.debug_mode }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "## 📊 Results" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.unit-tests.result }}" != "" ]; then
+          echo "- **Unit Tests**: ${{ needs.unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.integration-tests.result }}" != "" ]; then
+          echo "- **Integration Tests**: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.e2e-tests.result }}" != "" ]; then
+          echo "- **E2E Tests** (${{ inputs.browser }}): ${{ needs.e2e-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.performance-tests.result }}" != "" ]; then
+          echo "- **Performance Tests**: ${{ needs.performance-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.security-tests.result }}" != "" ]; then
+          echo "- **Security Tests**: ${{ needs.security-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 📁 Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "Test results and reports are available in the job artifacts." >> $GITHUB_STEP_SUMMARY

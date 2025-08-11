@@ -1,0 +1,298 @@
+config:
+  target: 'http://localhost:3000'
+  phases:
+    # Warm-up phase
+    - duration: 60
+      arrivalRate: 5
+      name: "Warm-up"
+    
+    # Gradual load increase
+    - duration: 120
+      arrivalRate: 10
+      rampTo: 50
+      name: "Load ramp-up"
+    
+    # Sustained load
+    - duration: 300
+      arrivalRate: 50
+      name: "Sustained load"
+    
+    # Peak load
+    - duration: 60
+      arrivalRate: 100
+      name: "Peak load"
+    
+    # Cool down
+    - duration: 60
+      arrivalRate: 10
+      name: "Cool down"
+  
+  processor: './performance/processors/auth-processor.js'
+  
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+    
+  defaults:
+    headers:
+      Content-Type: 'application/json'
+      User-Agent: 'Artillery Load Test'
+  
+  variables:
+    testUserEmail: 'loadtest-{{ $uuid }}@coderunner.io'
+    testUserPassword: 'LoadTest123!'
+
+scenarios:
+  # Authentication load testing
+  - name: "Authentication Flow"
+    weight: 20
+    flow:
+      # Register new user
+      - post:
+          url: "/api/auth/register"
+          name: "Register User"
+          json:
+            name: "Load Test User {{ $uuid }}"
+            email: "{{ testUserEmail }}"
+            password: "{{ testUserPassword }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+            - json: "$.user.id"
+              as: "userId"
+      
+      # Login with created user
+      - post:
+          url: "/api/auth/login"
+          name: "Login User"
+          json:
+            email: "{{ testUserEmail }}"
+            password: "{{ testUserPassword }}"
+          capture:
+            - json: "$.token"
+              as: "loginToken"
+      
+      # Verify token
+      - get:
+          url: "/api/auth/me"
+          name: "Verify Token"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+
+  # Deployment operations
+  - name: "Deployment Operations"
+    weight: 40
+    flow:
+      # Create auth user
+      - function: "createTestUser"
+      
+      # Create project
+      - post:
+          url: "/api/projects"
+          name: "Create Project"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            name: "Load Test Project {{ $uuid }}"
+            description: "Project for load testing"
+          capture:
+            - json: "$.id"
+              as: "projectId"
+      
+      # Create deployment
+      - post:
+          url: "/api/deployments"
+          name: "Create Deployment"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            name: "Load Test Deployment {{ $uuid }}"
+            projectId: "{{ projectId }}"
+            manifest:
+              version: "1.0"
+              name: "loadtest-app-{{ $uuid }}"
+              type: "nodejs"
+              runtime:
+                version: "18"
+              start:
+                command: "npm start"
+                port: 3000
+              resources:
+                cpu: 0.5
+                memory: 512
+          capture:
+            - json: "$.id"
+              as: "deploymentId"
+      
+      # Get deployment details
+      - get:
+          url: "/api/deployments/{{ deploymentId }}"
+          name: "Get Deployment"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+      
+      # List user deployments
+      - get:
+          url: "/api/deployments?page=1&limit=10"
+          name: "List Deployments"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+      
+      # Deployment actions
+      - post:
+          url: "/api/deployments/{{ deploymentId }}/actions"
+          name: "Stop Deployment"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            action: "stop"
+      
+      - post:
+          url: "/api/deployments/{{ deploymentId }}/actions"
+          name: "Start Deployment"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            action: "start"
+
+  # Configuration management
+  - name: "Configuration Operations"
+    weight: 15
+    flow:
+      - function: "createTestUser"
+      
+      # Create project for config testing
+      - post:
+          url: "/api/projects"
+          name: "Create Config Project"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            name: "Config Test Project {{ $uuid }}"
+          capture:
+            - json: "$.id"
+              as: "configProjectId"
+      
+      # Get project configurations
+      - get:
+          url: "/api/projects/{{ configProjectId }}/configurations"
+          name: "Get Configurations"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+      
+      # Add environment variables
+      - post:
+          url: "/api/projects/{{ configProjectId }}/configurations/development/variables"
+          name: "Add Dev Variable"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            key: "LOAD_TEST_VAR_{{ $uuid }}"
+            value: "load-test-value-{{ $randomString }}"
+            description: "Load test variable"
+            isRequired: false
+      
+      - post:
+          url: "/api/projects/{{ configProjectId }}/configurations/production/variables"
+          name: "Add Prod Secret"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            key: "LOAD_TEST_SECRET_{{ $uuid }}"
+            value: "super-secret-{{ $randomString }}"
+            description: "Load test secret"
+            isSecret: true
+
+  # Scaling operations
+  - name: "Scaling Operations"
+    weight: 15
+    flow:
+      - function: "createTestDeployment"
+      
+      # Get scaling information
+      - get:
+          url: "/api/deployments/{{ deploymentId }}/scaling"
+          name: "Get Scaling Info"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+      
+      # Create scaling policy
+      - post:
+          url: "/api/deployments/{{ deploymentId }}/scaling/policies"
+          name: "Create Scaling Policy"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            name: "Load Test CPU Policy {{ $uuid }}"
+            metricType: "cpu"
+            threshold: 75
+            scaleDirection: "out"
+            scaleAmount: 2
+            cooldownPeriod: 300
+      
+      # Manual scaling
+      - post:
+          url: "/api/deployments/{{ deploymentId }}/scaling/manual"
+          name: "Manual Scale"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            targetInstances: 3
+      
+      # Get deployment metrics
+      - get:
+          url: "/api/deployments/{{ deploymentId }}/metrics"
+          name: "Get Deployment Metrics"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+
+  # Health and monitoring
+  - name: "Health and Monitoring"
+    weight: 10
+    flow:
+      # System health check
+      - get:
+          url: "/api/health"
+          name: "System Health"
+      
+      # Detailed health (requires auth)
+      - function: "createTestUser"
+      - get:
+          url: "/api/health/detailed"
+          name: "Detailed Health"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+      
+      # System metrics
+      - get:
+          url: "/api/metrics"
+          name: "System Metrics"
+
+# Performance thresholds and assertions
+expect:
+  # Response time requirements
+  - statusCode: 200
+    # 95th percentile response times
+    p95: 500  # 500ms for 95% of requests
+    p99: 1000 # 1000ms for 99% of requests
+  
+  # Error rate should be minimal
+  - statusCode: [400, 401, 403, 404, 500]
+    maxCount: 50  # Allow maximum 50 error responses total
+
+# Metrics and reporting
+metrics:
+  - name: "response_time_auth"
+    unit: "ms"
+    
+  - name: "response_time_deployments"
+    unit: "ms"
+    
+  - name: "response_time_configuration"
+    unit: "ms"
+    
+  - name: "response_time_scaling"
+    unit: "ms"
+    
+  - name: "error_rate"
+    unit: "percent"

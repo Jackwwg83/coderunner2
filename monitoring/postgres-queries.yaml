@@ -1,0 +1,82 @@
+# PostgreSQL custom queries for CodeRunner monitoring
+
+pg_stat_statements:
+  query: "SELECT schemaname, tablename, calls, total_time, mean_time, rows FROM pg_stat_statements WHERE schemaname NOT IN ('information_schema', 'pg_catalog')"
+  master: true
+  metrics:
+    - calls:
+        usage: "COUNTER"
+        description: "Number of times executed"
+    - total_time:
+        usage: "COUNTER" 
+        description: "Total time spent in the statement, in milliseconds"
+    - mean_time:
+        usage: "GAUGE"
+        description: "Mean time spent in the statement, in milliseconds"
+    - rows:
+        usage: "COUNTER"
+        description: "Total number of rows retrieved or affected by the statement"
+  labels:
+    - schemaname
+    - tablename
+
+pg_database_size:
+  query: "SELECT datname, pg_database_size(datname) as size FROM pg_database WHERE datname = current_database()"
+  master: true
+  metrics:
+    - size:
+        usage: "GAUGE"
+        description: "Database size in bytes"
+  labels:
+    - datname
+
+pg_table_sizes:
+  query: "SELECT schemaname, tablename, pg_total_relation_size(schemaname||'.'||tablename) as size FROM pg_tables WHERE schemaname NOT IN ('information_schema', 'pg_catalog')"
+  master: true
+  metrics:
+    - size:
+        usage: "GAUGE" 
+        description: "Table size in bytes"
+  labels:
+    - schemaname
+    - tablename
+
+pg_connection_count:
+  query: "SELECT state, count(*) as count FROM pg_stat_activity GROUP BY state"
+  master: true
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Number of connections by state"
+  labels:
+    - state
+
+coderunner_deployments_by_status:
+  query: "SELECT status, count(*) as count FROM deployments GROUP BY status"
+  master: true
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Number of deployments by status"
+  labels:
+    - status
+
+coderunner_users_by_plan:
+  query: "SELECT plan_type, count(*) as count FROM users GROUP BY plan_type"
+  master: true
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Number of users by plan type"
+  labels:
+    - plan_type
+
+coderunner_recent_activity:
+  query: "SELECT 'deployments' as type, count(*) as count FROM deployments WHERE created_at > NOW() - INTERVAL '1 hour' UNION SELECT 'users' as type, count(*) as count FROM users WHERE created_at > NOW() - INTERVAL '1 hour'"
+  master: true
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Recent activity in the last hour"
+  labels:
+    - type

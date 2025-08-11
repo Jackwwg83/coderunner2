@@ -1,0 +1,112 @@
+# CodeRunner v2.0 - Docker ignore file
+# Optimized for production builds
+
+# Development files
+.env
+.env.local
+.env.test
+.env.development
+.env.*.local
+*.log
+logs/
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+test-results/
+playwright-report/
+.nyc_output
+*.lcov
+
+# Build artifacts
+dist/
+build/
+.next/
+.nuxt/
+out/
+
+# Development tools
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+README.md
+*.md
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Documentation
+docs/
+examples/
+screenshots/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+*.tmp
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+data/
+backups/
+
+# Security
+*.pem
+*.key
+*.crt
+ssl/
+secrets/
+
+# Monitoring and scripts
+monitoring/
+scripts/
+
+# Frontend build artifacts (if separate)
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+frontend/build/
+
+# Test files
+tests/
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Mock files
+mocks/
+__mocks__/
+
+# Performance test results
+artillery-results/
+load-test-results/
+
+# Backup files
+*.bak
+*.backup

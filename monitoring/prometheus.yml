@@ -1,0 +1,120 @@
+# Prometheus Configuration for CodeRunner Monitoring
+# This file configures Prometheus to scrape metrics from CodeRunner services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'coderunner'
+    environment: 'production'
+
+rule_files:
+  - "alert_rules.yml"
+  - "recording_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # CodeRunner Application Metrics
+  - job_name: 'coderunner-app'
+    static_configs:
+      - targets: ['localhost:3000']
+    metrics_path: '/api/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:3000
+
+  # System Metrics (Node Exporter)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['localhost:9100']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # PostgreSQL Metrics (if using postgres_exporter)
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['localhost:9187']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    params:
+      collect[]:
+        - pg_stat_database
+        - pg_stat_user_tables
+        - pg_stat_bgwriter
+
+  # Redis Metrics (if using redis_exporter)
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['localhost:9121']
+    scrape_interval: 30s
+
+  # CodeRunner Health Checks
+  - job_name: 'coderunner-health'
+    static_configs:
+      - targets: ['localhost:3000']
+    metrics_path: '/api/health'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    params:
+      format: ['prometheus']
+
+  # Blackbox Exporter for External Probes
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://prometheus.io
+        - https://prometheus.io
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # AgentSphere API Health (if configured)
+  - job_name: 'agentsphere-health'
+    static_configs:
+      - targets: ['agentsphere-api:8080']
+    metrics_path: '/health'
+    scrape_interval: 60s
+    scrape_timeout: 10s
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+
+  # Prometheus Self-Monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+
+  # Grafana Metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['localhost:3001']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # AlertManager Metrics
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['localhost:9093']
+    metrics_path: '/metrics'
+    scrape_interval: 30s

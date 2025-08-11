@@ -1,0 +1,485 @@
+name: Phase 2 Comprehensive Test Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run nightly comprehensive tests
+    - cron: '0 2 * * *'
+
+env:
+  NODE_VERSION: '18'
+  POSTGRES_VERSION: '15'
+  TEST_DATABASE_URL: postgres://test:test@localhost:5432/coderunner_test
+  AGENTSPHERE_API_URL: ${{ secrets.TEST_AGENTSPHERE_API_URL }}
+  AGENTSPHERE_API_KEY: ${{ secrets.TEST_AGENTSPHERE_API_KEY }}
+
+jobs:
+  # 🔍 Code Quality Checks
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: ESLint Check
+        run: npm run lint
+        continue-on-error: false
+      
+      - name: TypeScript Type Check
+        run: npx tsc --noEmit
+        continue-on-error: false
+      
+      - name: Security Audit
+        run: npm audit --audit-level=high
+        continue-on-error: false
+      
+      - name: Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'CodeRunner'
+          path: '.'
+          format: 'ALL'
+        continue-on-error: true
+      
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-report
+          path: reports/
+
+  # 🧪 Unit & Integration Tests
+  unit-integration-tests:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_USER: test
+          POSTGRES_DB: coderunner_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    strategy:
+      matrix:
+        test-group: [unit, integration, websocket]
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Setup Test Database
+        run: |
+          npm run db:init
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      
+      - name: Run Unit Tests
+        if: matrix.test-group == 'unit'
+        run: npm run test:unit -- --coverage --ci
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      
+      - name: Run Integration Tests
+        if: matrix.test-group == 'integration'
+        run: npm run test:integration -- --coverage --ci
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      
+      - name: Run WebSocket Tests
+        if: matrix.test-group == 'websocket'
+        run: npm run test:websocket -- --coverage --ci
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      
+      - name: Upload Coverage Reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: ${{ matrix.test-group }}
+          name: ${{ matrix.test-group }}-coverage
+          fail_ci_if_error: true
+      
+      - name: Archive Test Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-results-${{ matrix.test-group }}
+          path: |
+            coverage/
+            test-results.xml
+
+  # 🎭 E2E Tests with Playwright
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_USER: test
+          POSTGRES_DB: coderunner_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    strategy:
+      matrix:
+        browser: [chromium, firefox, webkit]
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      
+      - name: Setup Test Database
+        run: npm run db:init
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      
+      - name: Build Application
+        run: npm run build
+      
+      - name: Start Application
+        run: |
+          npm start &
+          sleep 10  # Wait for app to start
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          PORT: 3000
+      
+      - name: Wait for Application
+        run: |
+          timeout 30 bash -c 'until curl -f http://localhost:3000/health; do sleep 1; done'
+      
+      - name: Run E2E Tests
+        run: npx playwright test --project=${{ matrix.browser }}
+        env:
+          BASE_URL: http://localhost:3000
+          TEST_USER_EMAIL: test@example.com
+          TEST_USER_PASSWORD: testpassword123
+      
+      - name: Upload Playwright Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: |
+            playwright-report/
+            test-results/
+      
+      - name: Upload Screenshots
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: playwright-screenshots-${{ matrix.browser }}
+          path: test-results/
+
+  # ⚡ Performance Tests
+  performance-tests:
+    name: Performance & Load Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'performance')
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_USER: test
+          POSTGRES_DB: coderunner_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install Artillery
+        run: npm install -g artillery@latest
+      
+      - name: Setup Test Database
+        run: npm run db:init
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      
+      - name: Build and Start Application
+        run: |
+          npm run build
+          npm start &
+          sleep 10
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          PORT: 3000
+      
+      - name: Run Load Tests - API Endpoints
+        run: artillery run tests/performance/api-load-test.yml --output api-results.json
+      
+      - name: Run Load Tests - WebSocket
+        run: artillery run tests/performance/websocket-load-test.yml --output ws-results.json
+      
+      - name: Run Stress Tests
+        run: artillery run tests/performance/stress-test.yml --output stress-results.json
+        continue-on-error: true
+      
+      - name: Generate Performance Report
+        run: |
+          artillery report api-results.json --output api-performance-report.html
+          artillery report ws-results.json --output ws-performance-report.html
+          artillery report stress-results.json --output stress-performance-report.html
+      
+      - name: Performance Regression Check
+        run: |
+          node tests/performance/check-regression.js api-results.json
+          node tests/performance/check-regression.js ws-results.json
+      
+      - name: Upload Performance Reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-reports
+          path: |
+            *-performance-report.html
+            *-results.json
+
+  # 📊 Contract Tests
+  contract-tests:
+    name: API Contract Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_USER: test
+          POSTGRES_DB: coderunner_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install Pact CLI
+        run: npm install -g @pact-foundation/pact-cli
+      
+      - name: Setup Test Database
+        run: npm run db:init
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      
+      - name: Build and Start Application
+        run: |
+          npm run build
+          npm start &
+          sleep 10
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          PORT: 3000
+      
+      - name: Run Provider Contract Tests
+        run: npm run test:contract:provider
+        env:
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+      
+      - name: Publish Provider Verification Results
+        run: |
+          pact-broker publish-verification-results \
+            --provider-app-version ${{ github.sha }} \
+            --provider-version-tag ${{ github.ref_name }}
+        env:
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+
+  # 🔐 Security Tests
+  security-tests:
+    name: Security Testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build Application
+        run: npm run build
+      
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: 'http://localhost:3000'
+        continue-on-error: true
+      
+      - name: Run Security Tests
+        run: npm run test:security
+        continue-on-error: true
+      
+      - name: Upload Security Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-test-results
+          path: |
+            security-report.html
+            zap-report.html
+
+  # 📋 Test Results Aggregation
+  test-results:
+    name: Aggregate Test Results
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-integration-tests, e2e-tests]
+    if: always()
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v3
+      
+      - name: Generate Comprehensive Test Report
+        run: |
+          node scripts/generate-test-report.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload Comprehensive Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: comprehensive-test-report
+          path: comprehensive-test-report.html
+      
+      - name: Comment Test Results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const testSummary = fs.readFileSync('test-summary.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: testSummary
+            });
+
+  # 🚀 Deploy to Staging (on main branch)
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test-results]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: staging
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Deploy to Staging Environment
+        run: |
+          echo "Deploying to staging environment..."
+          # Add actual deployment commands here
+      
+      - name: Run Smoke Tests on Staging
+        run: |
+          npm run test:smoke -- --baseUrl=${{ secrets.STAGING_URL }}
+        env:
+          STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
+      
+      - name: Notify Deployment Success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: 'CodeRunner Phase 2 deployed to staging successfully!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      
+      - name: Notify Deployment Failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: 'CodeRunner Phase 2 staging deployment failed!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

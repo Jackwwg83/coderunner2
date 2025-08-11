@@ -127,10 +127,10 @@ entities:
       expect(serverCode).toContain('app.put(\'/api/posts/:id\'');
       expect(serverCode).toContain('app.delete(\'/api/posts/:id\'');
       
-      // Check validation for required fields
-      expect(serverCode).toContain('if (!req.body.name)');
-      expect(serverCode).toContain('if (!req.body.email)');
-      expect(serverCode).toContain('if (!req.body.title)');
+      // Check validation for required fields (using bracket notation for field access)
+      expect(serverCode).toContain('if (!req.body[\'name\'])');
+      expect(serverCode).toContain('if (!req.body[\'email\'])');
+      expect(serverCode).toContain('if (!req.body[\'title\'])');
       
       // Check server startup
       expect(serverCode).toContain('app.listen(PORT');
@@ -200,7 +200,7 @@ entities:
       expect(envFile).toBeDefined();
       
       const envContent = envFile!.content;
-      expect(envContent).toContain('PORT=3000');
+      expect(envContent).toContain('PORT=8080');
       expect(envContent).toContain('NODE_ENV=production');
       expect(envContent).toContain('DB_FILE=./data/db.json');
       expect(envContent).toContain('APP_NAME=Manifest Generated API');
@@ -301,7 +301,8 @@ entities:
   - fields: []`, // missing entity name
         `name: test  
 entities:
-  - name: User`, // missing fields
+  - name: User
+    fields: not_an_array`, // invalid fields type
         `name: test
 entities:
   - name: User
@@ -521,9 +522,13 @@ entities:
       expect(serverFile).toBeDefined();
       expect(files).toHaveLength(5);
       
-      // Should sanitize field names for JavaScript compatibility
+      // Should handle special characters in field names for JavaScript compatibility
       const serverContent = serverFile!.content;
-      expect(serverContent).toContain('required: ["field-with-dashes"');
+      expect(serverContent).toContain('if (!req.body[\'field-with-dashes\'])');
+      expect(serverContent).toContain('if (!req.body[\'field_with_underscores\'])');
+      expect(serverContent).toContain('if (!req.body[\'fieldWith123Numbers\'])');
+      // field@#$% should not have validation since it's not required
+      expect(serverContent).not.toContain('if (!req.body[\'field@#$%\'])');
     });
 
     it('should handle empty entity (no fields)', () => {
@@ -542,8 +547,8 @@ entities:
       expect(serverFile).toBeDefined();
       
       // Should handle entities with no fields gracefully
-      expect(serverFile!.content).toContain('/emptyentitys');
-      expect(serverFile!.content).toContain('/anothermptys');
+      expect(serverFile!.content).toContain('/emptyentities');
+      expect(serverFile!.content).toContain('/anotherempties');
     });
 
     it('should handle duplicate entity names', () => {

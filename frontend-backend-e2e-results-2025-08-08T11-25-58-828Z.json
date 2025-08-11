@@ -1,0 +1,350 @@
+{
+  "timestamp": "2025-08-08T11:25:58.828Z",
+  "testSuite": "Frontend-Backend Integration E2E",
+  "summary": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0,
+    "scenarios": 6,
+    "errors": [],
+    "journeys": [
+      {
+        "name": "API Discovery and Structure",
+        "steps": [
+          {
+            "step": "API Discovery",
+            "success": true,
+            "duration": 35,
+            "endpoints": 10
+          },
+          {
+            "step": "Version Information",
+            "success": true,
+            "duration": 38
+          }
+        ],
+        "startTime": 1754652357997,
+        "success": true,
+        "totalTime": 39
+      },
+      {
+        "name": "Health and Monitoring System",
+        "steps": [
+          {
+            "step": "Main Health",
+            "success": true,
+            "duration": 417,
+            "status": "healthy",
+            "checks": 6
+          },
+          {
+            "step": "Quick Health",
+            "success": true,
+            "duration": 419
+          },
+          {
+            "step": "Readiness Probe",
+            "success": true,
+            "duration": 764
+          },
+          {
+            "step": "Liveness Probe",
+            "success": true,
+            "duration": 767
+          }
+        ],
+        "startTime": 1754652358036,
+        "success": true,
+        "totalTime": 767
+      },
+      {
+        "name": "WebSocket Communication",
+        "steps": [
+          {
+            "step": "WebSocket Connection",
+            "success": true,
+            "duration": 5
+          }
+        ],
+        "startTime": 1754652358803,
+        "success": true,
+        "totalTime": 5
+      },
+      {
+        "name": "Rate Limiting and Protection",
+        "steps": [
+          {
+            "step": "Normal Requests",
+            "success": true,
+            "duration": 11,
+            "successRate": 100
+          },
+          {
+            "step": "Rate Limit Headers",
+            "success": true,
+            "duration": 13
+          }
+        ],
+        "startTime": 1754652358808,
+        "success": true,
+        "totalTime": 13
+      },
+      {
+        "name": "Error Handling and Responses",
+        "steps": [
+          {
+            "step": "404 Handling",
+            "success": true,
+            "duration": 1
+          },
+          {
+            "step": "Method Not Allowed",
+            "success": true,
+            "duration": 3
+          },
+          {
+            "step": "CORS Headers",
+            "success": true,
+            "duration": 4
+          }
+        ],
+        "startTime": 1754652358821,
+        "success": true,
+        "totalTime": 4
+      },
+      {
+        "name": "Cross-Origin Request Handling",
+        "steps": [
+          {
+            "step": "Preflight Handling",
+            "success": true,
+            "duration": 1
+          },
+          {
+            "step": "Origin Support",
+            "success": true,
+            "duration": 2
+          }
+        ],
+        "startTime": 1754652358825,
+        "success": true,
+        "totalTime": 2
+      }
+    ],
+    "details": [
+      {
+        "name": "API Root Endpoint",
+        "status": "PASSED",
+        "duration": 35,
+        "error": null
+      },
+      {
+        "name": "API Version Information",
+        "status": "PASSED",
+        "duration": 3,
+        "error": null
+      },
+      {
+        "name": "Main Health Check",
+        "status": "PASSED",
+        "duration": 417,
+        "error": null
+      },
+      {
+        "name": "Quick Health Check",
+        "status": "PASSED",
+        "duration": 2,
+        "error": null
+      },
+      {
+        "name": "Readiness Probe",
+        "status": "PASSED",
+        "duration": 345,
+        "error": null
+      },
+      {
+        "name": "Liveness Probe",
+        "status": "PASSED",
+        "duration": 3,
+        "error": null
+      },
+      {
+        "name": "WebSocket Connection Test",
+        "status": "PASSED",
+        "duration": 5,
+        "error": null
+      },
+      {
+        "name": "Normal Request Handling",
+        "status": "PASSED",
+        "duration": 11,
+        "error": null
+      },
+      {
+        "name": "Rate Limit Headers",
+        "status": "PASSED",
+        "duration": 2,
+        "error": null
+      },
+      {
+        "name": "404 Error Handling",
+        "status": "PASSED",
+        "duration": 1,
+        "error": null
+      },
+      {
+        "name": "Method Not Allowed Handling",
+        "status": "PASSED",
+        "duration": 1,
+        "error": null
+      },
+      {
+        "name": "CORS Headers",
+        "status": "PASSED",
+        "duration": 1,
+        "error": null
+      },
+      {
+        "name": "Preflight Request Handling",
+        "status": "PASSED",
+        "duration": 1,
+        "error": null
+      },
+      {
+        "name": "Frontend Origin Support",
+        "status": "PASSED",
+        "duration": 1,
+        "error": null
+      }
+    ]
+  },
+  "journeys": [
+    {
+      "name": "API Discovery and Structure",
+      "steps": [
+        {
+          "step": "API Discovery",
+          "success": true,
+          "duration": 35,
+          "endpoints": 10
+        },
+        {
+          "step": "Version Information",
+          "success": true,
+          "duration": 38
+        }
+      ],
+      "startTime": 1754652357997,
+      "success": true,
+      "totalTime": 39
+    },
+    {
+      "name": "Health and Monitoring System",
+      "steps": [
+        {
+          "step": "Main Health",
+          "success": true,
+          "duration": 417,
+          "status": "healthy",
+          "checks": 6
+        },
+        {
+          "step": "Quick Health",
+          "success": true,
+          "duration": 419
+        },
+        {
+          "step": "Readiness Probe",
+          "success": true,
+          "duration": 764
+        },
+        {
+          "step": "Liveness Probe",
+          "success": true,
+          "duration": 767
+        }
+      ],
+      "startTime": 1754652358036,
+      "success": true,
+      "totalTime": 767
+    },
+    {
+      "name": "WebSocket Communication",
+      "steps": [
+        {
+          "step": "WebSocket Connection",
+          "success": true,
+          "duration": 5
+        }
+      ],
+      "startTime": 1754652358803,
+      "success": true,
+      "totalTime": 5
+    },
+    {
+      "name": "Rate Limiting and Protection",
+      "steps": [
+        {
+          "step": "Normal Requests",
+          "success": true,
+          "duration": 11,
+          "successRate": 100
+        },
+        {
+          "step": "Rate Limit Headers",
+          "success": true,
+          "duration": 13
+        }
+      ],
+      "startTime": 1754652358808,
+      "success": true,
+      "totalTime": 13
+    },
+    {
+      "name": "Error Handling and Responses",
+      "steps": [
+        {
+          "step": "404 Handling",
+          "success": true,
+          "duration": 1
+        },
+        {
+          "step": "Method Not Allowed",
+          "success": true,
+          "duration": 3
+        },
+        {
+          "step": "CORS Headers",
+          "success": true,
+          "duration": 4
+        }
+      ],
+      "startTime": 1754652358821,
+      "success": true,
+      "totalTime": 4
+    },
+    {
+      "name": "Cross-Origin Request Handling",
+      "steps": [
+        {
+          "step": "Preflight Handling",
+          "success": true,
+          "duration": 1
+        },
+        {
+          "step": "Origin Support",
+          "success": true,
+          "duration": 2
+        }
+      ],
+      "startTime": 1754652358825,
+      "success": true,
+      "totalTime": 2
+    }
+  ],
+  "environment": {
+    "baseURL": "http://localhost:3005",
+    "nodeVersion": "v22.18.0",
+    "platform": "linux"
+  }
+}

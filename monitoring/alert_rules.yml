@@ -1,0 +1,226 @@
+# AlertManager Rules for CodeRunner
+# Critical alerts for production monitoring
+
+groups:
+  - name: coderunner.alerts
+    rules:
+      # High-priority system alerts
+      - alert: HighCPUUsage
+        expr: coderunner_system_cpu_usage_percent{core="total"} > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+          runbook_url: "https://docs.coderunner.com/runbooks/high-cpu"
+
+      - alert: CriticalCPUUsage
+        expr: coderunner_system_cpu_usage_percent{core="total"} > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+          runbook_url: "https://docs.coderunner.com/runbooks/critical-cpu"
+
+      - alert: HighMemoryUsage
+        expr: (coderunner_system_memory_usage_bytes{type="usage_percent"} > 85)
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: CriticalMemoryUsage
+        expr: (coderunner_system_memory_usage_bytes{type="usage_percent"} > 95)
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      # Application-level alerts
+      - alert: HighErrorRate
+        expr: (
+          sum(rate(coderunner_errors_total[5m])) by (service) / 
+          sum(rate(coderunner_api_requests_total[5m])) by (service)
+        ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: application
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for service {{ $labels.service }}"
+
+      - alert: CriticalErrorRate
+        expr: (
+          sum(rate(coderunner_errors_total[5m])) by (service) / 
+          sum(rate(coderunner_api_requests_total[5m])) by (service)
+        ) > 0.15
+        for: 2m
+        labels:
+          severity: critical
+          service: application
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for service {{ $labels.service }}"
+
+      - alert: SlowAPIResponse
+        expr: (
+          histogram_quantile(0.95, sum(rate(coderunner_api_duration_seconds_bucket[5m])) by (le, endpoint))
+        ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "Slow API response times detected"
+          description: "95th percentile response time is {{ $value }}s for {{ $labels.endpoint }}"
+
+      - alert: DeploymentFailure
+        expr: (
+          sum(rate(coderunner_deployment_duration_seconds_count{status="failed"}[10m])) by (type) > 0
+        )
+        for: 1m
+        labels:
+          severity: warning
+          service: deployment
+        annotations:
+          summary: "Deployment failures detected"
+          description: "{{ $value }} deployment failures in the last 10 minutes for type {{ $labels.type }}"
+
+      # Database alerts
+      - alert: DatabaseConnectionFailure
+        expr: up{job="coderunner-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Database connection failure"
+          description: "Cannot connect to database on {{ $labels.instance }}"
+
+      - alert: HighDatabaseConnections
+        expr: coderunner_database_connections_active > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "High database connection usage"
+          description: "Database has {{ $value }} active connections"
+
+      # WebSocket alerts
+      - alert: HighWebSocketErrorRate
+        expr: (
+          sum(rate(coderunner_websocket_errors_total[5m])) / 
+          sum(rate(coderunner_websocket_connections_total[5m]))
+        ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: websocket
+        annotations:
+          summary: "High WebSocket error rate"
+          description: "WebSocket error rate is {{ $value | humanizePercentage }}"
+
+      - alert: WebSocketConnectionDrop
+        expr: (
+          sum(coderunner_websocket_connections_total{status="total"}) 
+          - sum(coderunner_websocket_connections_total{status="total"} offset 5m)
+        ) < -50
+        for: 2m
+        labels:
+          severity: warning
+          service: websocket
+        annotations:
+          summary: "Large drop in WebSocket connections"
+          description: "WebSocket connections dropped by {{ $value }} in the last 5 minutes"
+
+      # Business-level alerts
+      - alert: NoDeployments
+        expr: (
+          sum(increase(coderunner_deployments_total[1h])) == 0
+        )
+        for: 1h
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "No deployments in the last hour"
+          description: "No new deployments have been created in the last hour"
+
+      - alert: HighResourceCosts
+        expr: (
+          sum(rate(coderunner_resource_costs_total[1h])) > 100
+        )
+        for: 15m
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "High resource costs detected"
+          description: "Resource costs are ${{ $value }}/hour, exceeding budget"
+
+      # Health check alerts
+      - alert: ServiceUnhealthy
+        expr: coderunner_health_check_status{status!="healthy"} == 1
+        for: 3m
+        labels:
+          severity: warning
+          service: health
+        annotations:
+          summary: "Service health check failed"
+          description: "{{ $labels.service }} health check is {{ $labels.status }}"
+
+      - alert: CriticalServiceDown
+        expr: (
+          coderunner_health_check_status{service=~"database|metrics|websocket",status="unhealthy"} == 1
+        )
+        for: 1m
+        labels:
+          severity: critical
+          service: health
+        annotations:
+          summary: "Critical service is down"
+          description: "Critical service {{ $labels.service }} is unhealthy"
+
+  - name: coderunner.recording
+    rules:
+      # Recording rules for better query performance
+      - record: coderunner:api_request_rate
+        expr: sum(rate(coderunner_api_requests_total[5m])) by (endpoint, method)
+
+      - record: coderunner:api_error_rate
+        expr: sum(rate(coderunner_errors_total[5m])) by (service, type)
+
+      - record: coderunner:deployment_success_rate
+        expr: (
+          sum(rate(coderunner_deployment_duration_seconds_count{status="success"}[10m])) / 
+          sum(rate(coderunner_deployment_duration_seconds_count[10m]))
+        )
+
+      - record: coderunner:system_usage
+        expr: |
+          (
+            (
+              coderunner_system_memory_usage_bytes{type="used"} / 
+              coderunner_system_memory_usage_bytes{type="total"}
+            ) * 100
+          )
+
+      - record: coderunner:websocket_health
+        expr: |
+          (
+            coderunner_websocket_connections_total{status="authenticated"} / 
+            coderunner_websocket_connections_total{status="total"}
+          )

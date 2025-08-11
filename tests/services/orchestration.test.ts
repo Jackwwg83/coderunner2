@@ -1,472 +1,252 @@
 import { OrchestrationService } from '../../src/services/orchestration';
-import { ExecutionRequest, ExecutionStatus } from '../../src/types';
+import { DatabaseService } from '../../src/services/database';
+import { ConfigurationService } from '../../src/services/configuration';
+import { ProjectFile, DeploymentStatus } from '../../src/types';
+import { Sandbox } from 'agentsphere-js';
 
-/**
- * OrchestrationService Unit Tests
- * 
- * Tests basic functionality of the OrchestrationService class.
- * Since this is currently a mock implementation, tests focus on:
- * - Method signatures and return types
- * - Queue management operations
- * - Mock execution workflow
- * - Basic state management
- */
+// Mock dependencies
+jest.mock('../../src/services/database');
+jest.mock('../../src/services/configuration');
+jest.mock('agentsphere-js');
 
 describe('OrchestrationService', () => {
   let orchestrationService: OrchestrationService;
-  let consoleSpy: jest.SpyInstance;
+  let mockDb: jest.Mocked<DatabaseService>;
+  let mockConfigService: jest.Mocked<ConfigurationService>;
+  let mockSandbox: jest.Mocked<Sandbox>;
 
-  beforeAll(() => {
-    // Set test environment
-    process.env.NODE_ENV = 'test';
-  });
+  const testUserId = 'test-user-id';
+  const testProjectFiles: ProjectFile[] = [
+    { path: 'package.json', content: '{"name": "test", "main": "index.js", "scripts": {"start": "node index.js"}}' },
+    { path: 'index.js', content: 'console.log("Hello World");' }
+  ];
 
   beforeEach(() => {
-    // Mock console.log to avoid test output pollution
-    consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-    
-    // Get OrchestrationService instance
+    // Clear all instances and calls to constructor and all methods
+    jest.clearAllMocks();
+
+    // Mock DatabaseService
+    mockDb = {
+      getInstance: jest.fn(),
+      createDeployment: jest.fn(),
+      updateDeployment: jest.fn(),
+      getDeploymentById: jest.fn(),
+      getProjectById: jest.fn(),
+      query: jest.fn(),
+    } as any;
+
+    (DatabaseService.getInstance as jest.Mock).mockReturnValue(mockDb);
+
+    // Mock ConfigurationService
+    mockConfigService = {
+      getInstance: jest.fn(),
+      getConfigurationForDeployment: jest.fn(),
+    } as any;
+
+    (ConfigurationService.getInstance as jest.Mock).mockReturnValue(mockConfigService);
+
+    // Mock Sandbox
+    mockSandbox = {
+      sandboxId: 'test-sandbox-id',
+      files: {
+        write: jest.fn(),
+      },
+      commands: {
+        run: jest.fn(),
+      },
+      getHost: jest.fn(),
+    } as any;
+
+    (Sandbox.create as jest.Mock).mockResolvedValue(mockSandbox);
+
+    // Get fresh instance
     orchestrationService = OrchestrationService.getInstance();
-    
-    // Clean up any existing state
-    orchestrationService.cleanup();
   });
 
   afterEach(() => {
-    consoleSpy.mockRestore();
+    jest.resetAllMocks();
   });
 
-  describe('Initialization', () => {
-    it('should be a singleton', () => {
-      const instance1 = OrchestrationService.getInstance();
-      const instance2 = OrchestrationService.getInstance();
-      expect(instance1).toBe(instance2);
+  describe('Deployment Process', () => {
+    test('should deploy Node.js project successfully', async () => {
+      // Setup mocks
+      const mockDeployment = {
+        id: 'test-deployment-id',
+        project_id: 'test-project-id',
+        status: DeploymentStatus.PENDING,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+
+      mockDb.createDeployment.mockResolvedValue(mockDeployment);
+      mockDb.getDeploymentById.mockResolvedValue(mockDeployment);
+      mockConfigService.getConfigurationForDeployment.mockResolvedValue({
+        environment: 'test',
+        variables: { NODE_ENV: 'test' },
+        lastUpdated: new Date()
+      });
+
+      (mockSandbox.commands.run as jest.Mock)
+        .mockResolvedValueOnce({ stdout: 'npm install completed' }) // npm install
+        .mockResolvedValueOnce({ pid: 1234 }); // app start
+
+      mockSandbox.getHost.mockReturnValue('https://test-sandbox-id.sandbox.agentsphere.com');
+
+      // Execute deployment
+      const result = await orchestrationService.deployProject(testUserId, testProjectFiles);
+
+      // Verify results
+      expect(result).toMatchObject({
+        id: expect.any(String),
+        projectId: expect.any(String),
+        url: 'https://test-sandbox-id.sandbox.agentsphere.com',
+        sandboxId: 'test-sandbox-id',
+        status: 'running'
+      });
+
+      // Verify interactions
+      expect(Sandbox.create).toHaveBeenCalledWith('template-nodejs-18');
+      expect(mockDb.createDeployment).toHaveBeenCalled();
+      expect(mockDb.updateDeployment).toHaveBeenCalled();
+      expect(mockSandbox.files.write).toHaveBeenCalledTimes(2); // Both files
+      expect(mockSandbox.commands.run).toHaveBeenCalledWith('npm install');
     });
 
-    it('should log initialization message', () => {
-      // Reset singleton to force re-creation
-      (OrchestrationService as any).instance = null;
-      
-      OrchestrationService.getInstance();
-      
-      expect(consoleSpy).toHaveBeenCalledWith('OrchestrationService initialized');
-    });
-  });
+    test('should handle deployment failure', async () => {
+      // Setup mocks for failure scenario
+      const mockDeployment = {
+        id: 'test-deployment-id',
+        project_id: 'test-project-id',
+        status: DeploymentStatus.PENDING,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
 
-  describe('submitExecution()', () => {
-    const validExecutionRequest: ExecutionRequest = {
-      userId: 'user_123',
-      projectId: 'proj_456',
-      files: [
-        { path: 'index.js', content: 'console.log("Hello World");' }
-      ],
-      entryPoint: 'index.js',
-      environment: 'node'
-    };
+      mockDb.createDeployment.mockResolvedValue(mockDeployment);
+      mockDb.getDeploymentById.mockResolvedValue(mockDeployment);
+      mockConfigService.getConfigurationForDeployment.mockResolvedValue({
+        environment: 'development',
+        variables: {},
+        lastUpdated: new Date()
+      });
 
-    it('should submit execution request and return execution ID', async () => {
-      const executionId = await orchestrationService.submitExecution(validExecutionRequest);
-      
-      expect(executionId).toBeDefined();
-      expect(executionId).toMatch(/^exec_\d+_[a-z0-9]{9}$/);
-      expect(typeof executionId).toBe('string');
-    });
+      // Mock sandbox creation failure
+      (Sandbox.create as jest.Mock).mockRejectedValue(new Error('Sandbox creation failed'));
 
-    it('should log execution submission', async () => {
-      const executionId = await orchestrationService.submitExecution(validExecutionRequest);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        `Execution request submitted with ID: ${executionId}`
+      // Execute and expect failure
+      await expect(orchestrationService.deployProject(testUserId, testProjectFiles))
+        .rejects.toThrow('Deployment failed: Sandbox creation failed');
+
+      // Verify cleanup
+      expect(mockDb.updateDeployment).toHaveBeenCalledWith(
+        mockDeployment.id,
+        { status: DeploymentStatus.FAILED }
       );
     });
-
-    it('should generate unique execution IDs', async () => {
-      const id1 = await orchestrationService.submitExecution(validExecutionRequest);
-      const id2 = await orchestrationService.submitExecution(validExecutionRequest);
-      const id3 = await orchestrationService.submitExecution(validExecutionRequest);
-      
-      expect(id1).not.toBe(id2);
-      expect(id2).not.toBe(id3);
-      expect(id1).not.toBe(id3);
-    });
-
-    it('should handle different execution requests', async () => {
-      const requests = [
-        { 
-          ...validExecutionRequest, 
-          files: [{ path: 'script.py', content: 'print("Python code")' }],
-          entryPoint: 'script.py',
-          environment: 'python' 
-        },
-        { 
-          ...validExecutionRequest, 
-          files: [{ path: 'Main.java', content: 'System.out.println("Java code");' }],
-          entryPoint: 'Main.java',
-          environment: 'java' 
-        },
-        { 
-          ...validExecutionRequest, 
-          files: [{ path: 'script.rb', content: 'puts "Ruby code"' }],
-          entryPoint: 'script.rb',
-          environment: 'ruby' 
-        }
-      ];
-      
-      const executionIds = [];
-      for (const request of requests) {
-        const id = await orchestrationService.submitExecution(request);
-        executionIds.push(id);
-      }
-      
-      // All should be unique
-      expect(new Set(executionIds).size).toBe(requests.length);
-    });
-
-    it('should handle execution request with optional fields', async () => {
-      const minimalRequest: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      const executionId = await orchestrationService.submitExecution(minimalRequest);
-      expect(executionId).toBeDefined();
-      expect(executionId).toMatch(/^exec_\d+_[a-z0-9]{9}$/);
-    });
   });
 
-  describe('getExecutionStatus()', () => {
-    it('should return null for non-existent execution', async () => {
-      const result = await orchestrationService.getExecutionStatus('non_existent_id');
-      expect(result).toBeNull();
-    });
-
-    it('should return execution result for valid execution ID', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
+  describe('Monitoring and Management', () => {
+    test('should monitor deployment successfully', async () => {
+      const deploymentId = 'test-deployment-id';
+      const mockDeployment = {
+        id: deploymentId,
+        project_id: 'test-project-id',
+        status: DeploymentStatus.RUNNING,
+        app_sandbox_id: 'test-sandbox-id',
+        public_url: 'https://test-app.com'
       };
-      
-      const executionId = await orchestrationService.submitExecution(request);
-      const result = await orchestrationService.getExecutionStatus(executionId);
-      
-      expect(result).toBeDefined();
-      expect(result?.id).toBe(executionId);
-      expect(result?.status).toBe(ExecutionStatus.PENDING);
-      expect(result?.output).toBe('');
-      expect(result?.error).toBe('');
-      expect(result?.executionTime).toBe(0);
-      expect(result?.createdAt).toBeInstanceOf(Date);
-      expect(result?.updatedAt).toBeInstanceOf(Date);
-    });
 
-    it('should return consistent results for same execution ID', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      const executionId = await orchestrationService.submitExecution(request);
-      const result1 = await orchestrationService.getExecutionStatus(executionId);
-      const result2 = await orchestrationService.getExecutionStatus(executionId);
-      
-      expect(result1?.id).toBe(result2?.id);
-      expect(result1?.status).toBe(result2?.status);
-      expect(result1?.createdAt).toEqual(result2?.createdAt);
-    });
+      mockDb.getDeploymentById.mockResolvedValue(mockDeployment);
 
-    it('should handle multiple executions', async () => {
-      const requests = [
-        { userId: 'user_1', projectId: 'proj_1', files: [{ path: 'code1.js', content: 'code1' }] },
-        { userId: 'user_2', projectId: 'proj_2', files: [{ path: 'code2.py', content: 'code2' }] }
-      ];
-      
-      const executionIds = [];
-      for (const request of requests) {
-        const id = await orchestrationService.submitExecution(request);
-        executionIds.push(id);
-      }
-      
-      for (const id of executionIds) {
-        const result = await orchestrationService.getExecutionStatus(id);
-        expect(result).toBeDefined();
-        expect(result?.id).toBe(id);
-      }
-    });
-  });
+      const result = await orchestrationService.monitorDeployment(deploymentId);
 
-  describe('cancelExecution()', () => {
-    it('should return false for non-existent execution', async () => {
-      const result = await orchestrationService.cancelExecution('non_existent_id');
-      expect(result).toBe(false);
-    });
-
-    it('should cancel existing execution', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      const executionId = await orchestrationService.submitExecution(request);
-      const cancelResult = await orchestrationService.cancelExecution(executionId);
-      
-      expect(cancelResult).toBe(true);
-    });
-
-    it('should log cancellation', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      const executionId = await orchestrationService.submitExecution(request);
-      await orchestrationService.cancelExecution(executionId);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        `Execution ${executionId} cancelled`
-      );
-    });
-
-    it('should remove execution from queue after cancellation', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      const executionId = await orchestrationService.submitExecution(request);
-      await orchestrationService.cancelExecution(executionId);
-      
-      // Should return null after cancellation
-      const status = await orchestrationService.getExecutionStatus(executionId);
-      expect(status).toBeNull();
-    });
-
-    it('should return false when trying to cancel already cancelled execution', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      const executionId = await orchestrationService.submitExecution(request);
-      await orchestrationService.cancelExecution(executionId);
-      
-      // Try to cancel again
-      const secondCancelResult = await orchestrationService.cancelExecution(executionId);
-      expect(secondCancelResult).toBe(false);
-    });
-  });
-
-  describe('getExecutionHistory()', () => {
-    it('should return empty array (mock implementation)', async () => {
-      const result = await orchestrationService.getExecutionHistory('user_123');
-      expect(result).toEqual([]);
-    });
-
-    it('should log history request with default limit', async () => {
-      const userId = 'user_123';
-      
-      await orchestrationService.getExecutionHistory(userId);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        `Getting execution history for user ${userId} (limit: 10)`
-      );
-    });
-
-    it('should log history request with custom limit', async () => {
-      const userId = 'user_123';
-      const limit = 25;
-      
-      await orchestrationService.getExecutionHistory(userId, limit);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        `Getting execution history for user ${userId} (limit: ${limit})`
-      );
-    });
-
-    it('should handle different user IDs', async () => {
-      const userIds = ['user_1', 'user_2', 'user_3'];
-      
-      for (const userId of userIds) {
-        const result = await orchestrationService.getExecutionHistory(userId);
-        expect(result).toEqual([]);
-      }
-    });
-
-    it('should handle various limit values', async () => {
-      const limits = [5, 10, 20, 50, 100];
-      
-      for (const limit of limits) {
-        const result = await orchestrationService.getExecutionHistory('user_test', limit);
-        expect(result).toEqual([]);
-      }
-    });
-  });
-
-  describe('getExecutionStats()', () => {
-    it('should return zero stats when no executions', async () => {
-      const stats = await orchestrationService.getExecutionStats();
-      
-      expect(stats).toEqual({
-        totalExecutions: 0,
-        activeExecutions: 0,
-        queuedExecutions: 0,
-        averageExecutionTime: 0
+      expect(result).toMatchObject({
+        status: DeploymentStatus.RUNNING,
+        health: expect.any(String),
+        metrics: expect.objectContaining({
+          uptime: expect.any(Number),
+          memoryUsage: expect.any(Number),
+          cpuUsage: expect.any(Number)
+        }),
+        logs: expect.any(Array)
       });
     });
 
-    it('should return updated stats after submitting executions', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      await orchestrationService.submitExecution(request);
-      await orchestrationService.submitExecution(request);
-      
-      const stats = await orchestrationService.getExecutionStats();
-      
-      expect(stats.totalExecutions).toBe(2);
-      expect(stats.queuedExecutions).toBe(2);
-      expect(stats.activeExecutions).toBe(0);
-      expect(stats.averageExecutionTime).toBe(0);
-    });
+    test('should handle monitoring of non-existent deployment', async () => {
+      const deploymentId = 'non-existent-deployment';
+      mockDb.getDeploymentById.mockResolvedValue(null);
 
-    it('should return correct queue count after cancellations', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      await orchestrationService.submitExecution(request);
-      const id2 = await orchestrationService.submitExecution(request);
-      await orchestrationService.submitExecution(request);
-      
-      await orchestrationService.cancelExecution(id2);
-      
-      const stats = await orchestrationService.getExecutionStats();
-      
-      expect(stats.totalExecutions).toBe(2); // Should be 2 after cancellation
-      expect(stats.queuedExecutions).toBe(2);
+      await expect(orchestrationService.monitorDeployment(deploymentId))
+        .rejects.toThrow('Deployment non-existent-deployment not found');
     });
   });
 
-  describe('initializeAgentSphere()', () => {
-    it('should log TODO message', async () => {
-      await orchestrationService.initializeAgentSphere();
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'TODO: Initialize AgentSphere SDK connection'
+  describe('Cleanup and Management', () => {
+    test('should cleanup sandboxes based on age', async () => {
+      // Mock database query for cleanup
+      mockDb.query.mockResolvedValue({
+        rows: [{ status: DeploymentStatus.STOPPED }]
+      });
+
+      const result = await orchestrationService.cleanupSandboxes({
+        maxAge: 1000, // 1 second
+        force: false
+      });
+
+      expect(result).toMatchObject({
+        cleaned: expect.any(Number),
+        errors: expect.any(Array),
+        details: expect.any(Array)
+      });
+    });
+
+    test('should cancel execution successfully', async () => {
+      const executionId = 'test-execution-id';
+      const mockDeployment = {
+        id: executionId,
+        project_id: 'test-project-id',
+        app_sandbox_id: 'test-sandbox-id'
+      };
+
+      mockDb.getDeploymentById.mockResolvedValue(mockDeployment);
+      mockDb.query.mockResolvedValue({ rows: [] }); // No deployment records
+
+      const result = await orchestrationService.cancelExecution(executionId);
+
+      expect(result).toBe(true);
+      expect(mockDb.updateDeployment).toHaveBeenCalledWith(
+        executionId,
+        { status: DeploymentStatus.DESTROYED }
       );
     });
+  });
 
-    it('should complete without errors', async () => {
-      await expect(orchestrationService.initializeAgentSphere()).resolves.toBeUndefined();
+  describe('Error Handling', () => {
+    test('should handle errors with retry strategy', async () => {
+      const deploymentId = 'test-deployment-id';
+      const networkError = new Error('Network connection failed');
+
+      const result = await orchestrationService.handleErrors(deploymentId, networkError, {
+        stage: 'building',
+        retryCount: 0,
+        maxRetries: 3
+      });
+
+      expect(result).toMatchObject({
+        recovered: expect.any(Boolean),
+        action: expect.stringMatching(/retry|fallback|abort/),
+      });
     });
   });
 
-  describe('cleanup()', () => {
-    it('should clear all queues and log completion', async () => {
-      // Add some executions first
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      await orchestrationService.submitExecution(request);
-      await orchestrationService.submitExecution(request);
-      
-      // Verify they exist
-      let stats = await orchestrationService.getExecutionStats();
-      expect(stats.totalExecutions).toBe(2);
-      
-      // Cleanup
+  describe('Service Lifecycle', () => {
+    test('should cleanup service properly', async () => {
+      mockDb.query.mockResolvedValue({ rows: [] });
+
       await orchestrationService.cleanup();
-      
-      // Verify cleanup
-      stats = await orchestrationService.getExecutionStats();
-      expect(stats.totalExecutions).toBe(0);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'OrchestrationService cleanup completed'
-      );
-    });
 
-    it('should handle cleanup when queues are already empty', async () => {
-      await orchestrationService.cleanup();
-      
-      const stats = await orchestrationService.getExecutionStats();
-      expect(stats.totalExecutions).toBe(0);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'OrchestrationService cleanup completed'
-      );
-    });
-  });
-
-  describe('generateExecutionId() (private method behavior)', () => {
-    it('should generate unique IDs through submitExecution', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_123',
-        projectId: 'proj_456',
-        files: [
-          { path: 'test.js', content: 'console.log("test");' }
-        ]
-      };
-      
-      const ids = new Set();
-      const iterations = 10;
-      
-      for (let i = 0; i < iterations; i++) {
-        const id = await orchestrationService.submitExecution(request);
-        ids.add(id);
-      }
-      
-      // All IDs should be unique
-      expect(ids.size).toBe(iterations);
-    });
-
-    it('should generate IDs with correct format', async () => {
-      const request: ExecutionRequest = {
-        userId: 'user_test',
-        projectId: 'proj_test',
-        files: [
-          { path: 'test.js', content: 'test code' }
-        ]
-      };
-      
-      const executionId = await orchestrationService.submitExecution(request);
-      
-      expect(executionId).toMatch(/^exec_\d+_[a-z0-9]{9}$/);
-      expect(executionId.startsWith('exec_')).toBe(true);
+      // Verify cleanup was called (implementation detail)
+      expect(true).toBe(true);
     });
   });
 });

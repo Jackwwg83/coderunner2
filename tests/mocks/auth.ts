@@ -70,7 +70,7 @@ export const createMockAuthService = () => {
       const mockResponse: AuthResponse = {
         success: true,
         data: {
-          user: withoutPassword(mockUsers.validUser) as Omit<User, 'password_hash'>,
+          user: withoutPassword(mockUsers.validUser),
           token: MockAuthService.createMockToken(),
           expiresAt: new Date(Date.now() + 3600000) // 1 hour
         },
@@ -96,7 +96,7 @@ export const createMockAuthService = () => {
       const mockResponse: AuthResponse = {
         success: true,
         data: {
-          user: withoutPassword(mockUsers.validUser) as Omit<User, 'password_hash'>,
+          user: withoutPassword(mockUsers.validUser),
           token: MockAuthService.createMockToken(),
           expiresAt: new Date(Date.now() + 3600000)
         },
@@ -142,7 +142,7 @@ export const createMockAuthService = () => {
       const mockResponse: AuthResponse = {
         success: true,
         data: {
-          user: withoutPassword(mockUsers.validUser) as Omit<User, 'password_hash'>,
+          user: withoutPassword(mockUsers.validUser),
           token: MockAuthService.createMockToken(),
           expiresAt: new Date(Date.now() + 3600000)
         },

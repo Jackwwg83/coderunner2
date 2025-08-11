@@ -16,16 +16,26 @@ export class AuthService {
   private static instance: AuthService;
   private db: DatabaseService;
   private tokenBlacklist: Set<string> = new Set();
+  private refreshTokenBlacklist: Set<string> = new Set();
+  private activeSessions: Map<string, { userId: string; createdAt: Date; lastAccess: Date }> = new Map();
 
   // Configuration
-  private static readonly JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
-  private static readonly JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-  private static readonly BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || '10');
+  private static get JWT_SECRET(): string {
+    return process.env.JWT_SECRET || 'fallback-secret-key';
+  }
+  
+  private static get JWT_EXPIRES_IN(): string {
+    return process.env.JWT_EXPIRES_IN || '7d';
+  }
+  
+  private static get BCRYPT_ROUNDS(): number {
+    return parseInt(process.env.BCRYPT_ROUNDS || '10');
+  }
   
   private constructor() {
     this.db = DatabaseService.getInstance();
     
-    if (AuthService.JWT_SECRET === 'fallback-secret-key') {
+    if (AuthService.JWT_SECRET === 'fallback-secret-key' && process.env.NODE_ENV !== 'test') {
       console.warn('⚠️ Using fallback JWT secret. Set JWT_SECRET in environment variables.');
     }
   }
@@ -42,7 +52,7 @@ export class AuthService {
   // ========================================
 
   /**
-   * Register a new user
+   * Register a new user with enhanced security
    */
   public async register(input: RegisterInput): Promise<AuthResponse> {
     try {
@@ -78,16 +88,18 @@ export class AuthService {
         plan_type: planType
       });
 
-      // Generate token
-      const token = this.generateToken({
+      // Generate tokens
+      const accessToken = this.generateToken({
         id: newUser.id,
         email: newUser.email,
         plan_type: newUser.plan_type
       });
+      
+      const refreshToken = this.generateRefreshToken(newUser.id);
 
       // Calculate expiration
-      const decoded = jwt.decode(token) as any;
-      const expiresAt = new Date(decoded.exp * 1000);
+      const decoded = jwt.decode(accessToken) as any;
+      const expiresAt = new Date((decoded?.exp || Math.floor(Date.now() / 1000) + 3600) * 1000);
 
       return {
         success: true,
@@ -99,7 +111,8 @@ export class AuthService {
             created_at: newUser.created_at,
             updated_at: newUser.updated_at
           },
-          token,
+          token: accessToken,
+          refreshToken,
           expiresAt
         },
         message: 'User registered successfully'
@@ -113,7 +126,7 @@ export class AuthService {
   }
 
   /**
-   * Login user
+   * Login user with enhanced security
    */
   public async login(credentials: LoginCredentials): Promise<AuthResponse> {
     try {
@@ -142,16 +155,18 @@ export class AuthService {
         throw new AuthError('Invalid credentials', 401, 'INVALID_CREDENTIALS');
       }
 
-      // Generate token
-      const token = this.generateToken({
+      // Generate tokens
+      const accessToken = this.generateToken({
         id: user.id,
         email: user.email,
         plan_type: user.plan_type
       });
+      
+      const refreshToken = this.generateRefreshToken(user.id);
 
       // Calculate expiration
-      const decoded = jwt.decode(token) as any;
-      const expiresAt = new Date(decoded.exp * 1000);
+      const decoded = jwt.decode(accessToken) as any;
+      const expiresAt = new Date((decoded?.exp || Math.floor(Date.now() / 1000) + 3600) * 1000);
 
       return {
         success: true,
@@ -163,7 +178,8 @@ export class AuthService {
             created_at: user.created_at,
             updated_at: user.updated_at
           },
-          token,
+          token: accessToken,
+          refreshToken,
           expiresAt
         },
         message: 'Login successful'
@@ -181,24 +197,55 @@ export class AuthService {
   // ========================================
 
   /**
-   * Generate JWT token for user
+   * Generate JWT token for user with session tracking
    */
   public generateToken(user: { id: string; email: string; plan_type: string }): string {
+    const now = Math.floor(Date.now() / 1000);
     const payload: JWTPayload = {
       userId: user.id,
       email: user.email,
-      planType: user.plan_type
+      planType: user.plan_type,
+      iat: now,
+      jti: require('crypto').randomUUID() // JWT ID for tracking
+    };
+
+    const token = jwt.sign(payload, AuthService.JWT_SECRET, {
+      expiresIn: AuthService.JWT_EXPIRES_IN,
+      issuer: 'coderunner-api',
+      audience: 'coderunner-client'
+    } as jwt.SignOptions);
+
+    // Track active session
+    const sessionKey = `${user.id}:${now}`;
+    this.activeSessions.set(sessionKey, {
+      userId: user.id,
+      createdAt: new Date(),
+      lastAccess: new Date()
+    });
+
+    return token;
+  }
+
+  /**
+   * Generate refresh token
+   */
+  public generateRefreshToken(userId: string): string {
+    const payload = {
+      userId,
+      type: 'refresh',
+      iat: Math.floor(Date.now() / 1000),
+      jti: require('crypto').randomUUID()
     };
 
     return jwt.sign(payload, AuthService.JWT_SECRET, {
-      expiresIn: AuthService.JWT_EXPIRES_IN,
+      expiresIn: '30d', // Refresh tokens last 30 days
       issuer: 'coderunner-api',
       audience: 'coderunner-client'
     } as jwt.SignOptions);
   }
 
   /**
-   * Verify JWT token
+   * Verify JWT token with enhanced security checks
    */
   public verifyToken(token: string): JWTPayload {
     try {
@@ -211,6 +258,18 @@ export class AuthService {
         issuer: 'coderunner-api',
         audience: 'coderunner-client'
       }) as JWTPayload;
+
+      // Update session activity
+      if (payload.iat) {
+        const sessionKey = `${payload.userId}:${payload.iat}`;
+        const session = this.activeSessions.get(sessionKey);
+        if (session) {
+          session.lastAccess = new Date();
+        }
+      }
+
+      // Additional security checks
+      this.validateTokenSecurity(payload);
 
       return payload;
     } catch (error) {
@@ -228,6 +287,23 @@ export class AuthService {
   }
 
   /**
+   * Validate token security properties
+   */
+  private validateTokenSecurity(payload: JWTPayload): void {
+    const now = Math.floor(Date.now() / 1000);
+    
+    // Check if token is too old (beyond normal expiry)
+    if (payload.iat && (now - payload.iat) > 30 * 24 * 60 * 60) { // 30 days
+      throw new AuthError('Token is too old', 401, 'TOKEN_TOO_OLD');
+    }
+
+    // Validate token structure
+    if (!payload.userId || !payload.email || !payload.planType) {
+      throw new AuthError('Invalid token structure', 401, 'INVALID_TOKEN_STRUCTURE');
+    }
+  }
+
+  /**
    * Decode token without verification (for extracting info)
    */
   public decodeToken(token: string): JWTPayload | null {
@@ -239,19 +315,22 @@ export class AuthService {
   }
 
   /**
-   * Refresh token if it's close to expiration
+   * Refresh token with enhanced security
    */
-  public async refreshToken(oldToken: string): Promise<AuthResponse> {
+  public async refreshToken(refreshToken: string): Promise<AuthResponse> {
     try {
-      const payload = this.verifyToken(oldToken);
-      
-      // Check if token is within refresh window (e.g., less than 24 hours left)
-      const now = Math.floor(Date.now() / 1000);
-      const timeUntilExpiry = payload.exp! - now;
-      const refreshWindow = 24 * 60 * 60; // 24 hours
-      
-      if (timeUntilExpiry > refreshWindow) {
-        throw new AuthError('Token does not need refresh yet', 400, 'TOKEN_NOT_ELIGIBLE_FOR_REFRESH');
+      // Verify refresh token
+      if (this.refreshTokenBlacklist.has(refreshToken)) {
+        throw new AuthError('Refresh token has been revoked', 401, 'REFRESH_TOKEN_REVOKED');
+      }
+
+      const payload = jwt.verify(refreshToken, AuthService.JWT_SECRET, {
+        issuer: 'coderunner-api',
+        audience: 'coderunner-client'
+      }) as any;
+
+      if (payload.type !== 'refresh') {
+        throw new AuthError('Invalid refresh token type', 401, 'INVALID_REFRESH_TOKEN');
       }
 
       // Get fresh user data
@@ -260,18 +339,20 @@ export class AuthService {
         throw new AuthError('User not found', 404, 'USER_NOT_FOUND');
       }
 
-      // Generate new token
-      const newToken = this.generateToken({
+      // Generate new access token and refresh token
+      const newAccessToken = this.generateToken({
         id: user.id,
         email: user.email,
         plan_type: user.plan_type
       });
+      
+      const newRefreshToken = this.generateRefreshToken(user.id);
 
-      // Blacklist old token
-      this.tokenBlacklist.add(oldToken);
+      // Blacklist old refresh token
+      this.refreshTokenBlacklist.add(refreshToken);
 
       // Calculate expiration
-      const decoded = jwt.decode(newToken) as any;
+      const decoded = jwt.decode(newAccessToken) as any;
       const expiresAt = new Date(decoded.exp * 1000);
 
       return {
@@ -284,12 +365,16 @@ export class AuthService {
             created_at: user.created_at,
             updated_at: user.updated_at
           },
-          token: newToken,
+          token: newAccessToken,
+          refreshToken: newRefreshToken,
           expiresAt
         },
-        message: 'Token refreshed successfully'
+        message: 'Tokens refreshed successfully'
       };
     } catch (error) {
+      if (error instanceof jwt.JsonWebTokenError) {
+        throw new AuthError('Invalid refresh token', 401, 'INVALID_REFRESH_TOKEN');
+      }
       if (error instanceof AuthError) {
         throw error;
       }
@@ -298,11 +383,83 @@ export class AuthService {
   }
 
   /**
+   * Logout user and revoke tokens
+   */
+  public logout(accessToken: string, refreshToken?: string): { success: boolean; message: string } {
+    try {
+      // Revoke access token
+      this.revokeToken(accessToken, 'logout');
+      
+      // Revoke refresh token if provided
+      if (refreshToken) {
+        this.refreshTokenBlacklist.add(refreshToken);
+      }
+
+      return {
+        success: true,
+        message: 'Logged out successfully'
+      };
+    } catch (error) {
+      return {
+        success: true, // Always return success for logout
+        message: 'Logged out successfully'
+      };
+    }
+  }
+
+  /**
    * Revoke/blacklist a token
    */
-  public revokeToken(token: string): void {
+  public revokeToken(token: string, reason: 'logout' | 'password_change' | 'account_deletion' = 'logout'): void {
     this.tokenBlacklist.add(token);
+    
+    // Remove from active sessions
+    try {
+      const payload = this.decodeToken(token);
+      if (payload) {
+        const sessionKey = `${payload.userId}:${payload.iat}`;
+        this.activeSessions.delete(sessionKey);
+      }
+    } catch (error) {
+      // Ignore decode errors for blacklisting
+    }
+    
+    console.log(`Token revoked - Reason: ${reason}, Time: ${new Date().toISOString()}`);
     // TODO: In production, store blacklisted tokens in database with expiration
+  }
+
+  /**
+   * Revoke all tokens for a user (e.g., on password change)
+   */
+  public revokeAllUserTokens(userId: string, reason: 'password_change' | 'account_deletion' = 'password_change'): void {
+    // Remove all active sessions for the user
+    for (const [sessionKey, session] of this.activeSessions.entries()) {
+      if (session.userId === userId) {
+        this.activeSessions.delete(sessionKey);
+      }
+    }
+    
+    console.log(`All tokens revoked for user ${userId} - Reason: ${reason}`);
+    // TODO: In production, add all user tokens to blacklist from database
+  }
+
+  /**
+   * Check if token is blacklisted
+   */
+  public isTokenBlacklisted(token: string): boolean {
+    return this.tokenBlacklist.has(token);
+  }
+
+  /**
+   * Clean up expired tokens from blacklist (memory management)
+   */
+  public cleanupExpiredTokens(): void {
+    // This would be implemented with database storage in production
+    // For now, we'll clear the in-memory blacklist periodically
+    if (this.tokenBlacklist.size > 10000) {
+      this.tokenBlacklist.clear();
+      console.log('Token blacklist cleared due to size limit');
+    }
   }
 
   // ========================================
@@ -324,7 +481,7 @@ export class AuthService {
   }
 
   /**
-   * Change user password
+   * Change user password with enhanced security
    */
   public async changePassword(userId: string, request: PasswordChangeRequest): Promise<{ success: boolean; message: string }> {
     try {
@@ -364,9 +521,12 @@ export class AuthService {
       // Update password
       await this.db.updateUser(userId, { password_hash: newPasswordHash });
 
+      // Revoke all existing tokens for security
+      this.revokeAllUserTokens(userId, 'password_change');
+
       return {
         success: true,
-        message: 'Password changed successfully'
+        message: 'Password changed successfully. Please log in again.'
       };
     } catch (error) {
       if (error instanceof AuthError) {
@@ -383,11 +543,20 @@ export class AuthService {
     const errors: string[] = [];
     let score = 0;
 
-    // Length check
+    if (!password) {
+      return {
+        isValid: false,
+        errors: ['Password is required'],
+        strength: 'weak'
+      };
+    }
+
+    // Length check - be strict
     if (password.length < 8) {
       errors.push('Password must be at least 8 characters long');
     } else {
       score += 1;
+      if (password.length >= 12) score += 1; // Bonus for longer passwords
     }
 
     // Character variety checks
@@ -415,13 +584,38 @@ export class AuthService {
       score += 1;
     }
 
-    // Determine strength
+    // Common password check
+    const commonPasswords = [
+      'password', '12345678', 'qwerty123', 'password123', 'admin123',
+      'letmein123', '123456789', 'welcome123', 'changeme123', 'abc123456',
+      'password1', '123123123', 'qwertyuiop', 'asdfghjkl', 'password!',
+      '12345678', 'qwertyui', 'asdfghjk', 'zxcvbnm1', 'iloveyou1'
+    ];
+    
+    if (commonPasswords.includes(password.toLowerCase())) {
+      errors.push('Password is too common. Please choose a stronger password.');
+      score = 0; // Reset score for common passwords
+    }
+
+    // Sequential or repeated characters check
+    if (/123456|654321|abcdef|qwerty|password/i.test(password)) {
+      errors.push('Password should not contain sequential characters or common patterns');
+      score = Math.max(0, score - 2);
+    }
+
+    // Repeated character check
+    if (/(..).*\1/.test(password) || /(.{3,}).*\1/.test(password)) {
+      errors.push('Password should not contain repeated patterns');
+      score = Math.max(0, score - 1);
+    }
+
+    // Determine strength based on enhanced scoring
     let strength: 'weak' | 'medium' | 'strong' = 'weak';
-    if (score >= 4) strength = 'medium';
-    if (score === 5 && password.length >= 12) strength = 'strong';
+    if (score >= 4 && errors.length === 0) strength = 'medium';
+    if (score >= 6 && password.length >= 12 && errors.length === 0) strength = 'strong';
 
     return {
-      isValid: errors.length === 0,
+      isValid: errors.length === 0 && score >= 5, // Require all criteria + bonus
       errors,
       strength
     };
@@ -576,6 +770,101 @@ export class AuthService {
       return new Date(payload.exp * 1000);
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get active sessions for a user
+   */
+  public getActiveSessions(userId: string): Array<{ createdAt: Date; lastAccess: Date }> {
+    const sessions: Array<{ createdAt: Date; lastAccess: Date }> = [];
+    
+    for (const [sessionKey, session] of this.activeSessions.entries()) {
+      if (session.userId === userId) {
+        sessions.push({
+          createdAt: session.createdAt,
+          lastAccess: session.lastAccess
+        });
+      }
+    }
+    
+    return sessions.sort((a, b) => b.lastAccess.getTime() - a.lastAccess.getTime());
+  }
+
+  /**
+   * Clean up expired sessions
+   */
+  public cleanupExpiredSessions(): void {
+    const now = Date.now();
+    const sessionTimeout = 24 * 60 * 60 * 1000; // 24 hours
+    
+    for (const [sessionKey, session] of this.activeSessions.entries()) {
+      if (now - session.lastAccess.getTime() > sessionTimeout) {
+        this.activeSessions.delete(sessionKey);
+      }
+    }
+  }
+
+  /**
+   * Validate session security
+   */
+  public validateSession(token: string): boolean {
+    try {
+      const payload = this.decodeToken(token);
+      if (!payload || !payload.iat) return false;
+      
+      const sessionKey = `${payload.userId}:${payload.iat}`;
+      return this.activeSessions.has(sessionKey);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Update user profile
+   */
+  public async updateUserProfile(token: string, updateData: any): Promise<User> {
+    try {
+      if (this.tokenBlacklist.has(token)) {
+        throw new AuthError('Token has been revoked', 401, 'TOKEN_REVOKED');
+      }
+
+      const payload = this.decodeToken(token);
+      if (!payload) {
+        throw new AuthError('Invalid token', 401, 'INVALID_TOKEN');
+      }
+
+      const user = await this.db.getUserById(payload.userId);
+      if (!user) {
+        throw new AuthError('User not found', 404, 'USER_NOT_FOUND');
+      }
+
+      // Update allowed fields
+      const allowedFields = ['name', 'bio', 'location', 'website'];
+      const updates: any = {};
+      
+      for (const field of allowedFields) {
+        if (updateData[field] !== undefined) {
+          updates[field] = updateData[field];
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return user; // No updates needed
+      }
+
+      // Update user in database
+      const updatedUser = await this.db.updateUser(user.id, updates);
+      if (!updatedUser) {
+        throw new AuthError('Failed to update user', 500, 'UPDATE_FAILED');
+      }
+
+      return updatedUser;
+    } catch (error) {
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      throw new AuthError('Profile update failed', 500, 'UPDATE_PROFILE_FAILED');
     }
   }
 }

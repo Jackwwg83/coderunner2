@@ -82,6 +82,17 @@ jest.mock('../../src/services/database');
 // Import routes after mocking
 import authRoutes from '../../src/routes/auth';
 
+// Helper function to handle date serialization in API responses
+const expectUserWithDates = (actual: any, expected: any) => {
+  const { created_at, updated_at, ...rest } = expected;
+  
+  expect(actual).toMatchObject({
+    ...rest,
+    created_at: created_at instanceof Date ? created_at.toISOString() : created_at,
+    updated_at: updated_at instanceof Date ? updated_at.toISOString() : updated_at
+  });
+};
+
 describe('Auth Routes Integration', () => {
   let app: express.Application;
   let mockAuthService: any;
@@ -149,7 +160,7 @@ describe('Auth Routes Integration', () => {
         .expect(201);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.user).toEqual(withoutPassword(mockUsers.validUser));
+      expectUserWithDates(response.body.data.user, withoutPassword(mockUsers.validUser));
       expect(response.body.data.token).toBeDefined();
       expect(response.body.message).toBe('User registered successfully');
       expect(mockAuthService.register).toHaveBeenCalledWith(mockRegisterInputs.valid);
@@ -310,7 +321,7 @@ describe('Auth Routes Integration', () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.user).toEqual(withoutPassword(mockUsers.validUser));
+      expectUserWithDates(response.body.data.user, withoutPassword(mockUsers.validUser));
       expect(response.body.data.token).toBeDefined();
       expect(response.body.message).toBe('Login successful');
       expect(mockAuthService.login).toHaveBeenCalledWith(mockLoginCredentials.valid);
@@ -423,7 +434,7 @@ describe('Auth Routes Integration', () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data).toEqual(withoutPassword(mockUsers.validUser));
+      expectUserWithDates(response.body.data, withoutPassword(mockUsers.validUser));
       expect(response.body.message).toBe('User information retrieved successfully');
       expect(mockAuthService.getCurrentUser).toHaveBeenCalledWith(validToken);
     });
@@ -481,6 +492,86 @@ describe('Auth Routes Integration', () => {
 
       const response = await request(app)
         .get('/api/auth/me')
+        .set('Authorization', `Bearer ${nearExpiryToken}`)
+        .expect(200);
+
+      expect(response.headers['x-token-near-expiry']).toBe('true');
+      expect(response.headers['x-token-expires-at']).toBe(expirationDate.toISOString());
+    });
+  });
+
+  describe('GET /api/auth/profile', () => {
+    it('should get user profile successfully', async () => {
+      const validToken = MockAuthService.createMockToken();
+      mockAuthService.verifyToken.mockReturnValue(mockJWTPayloads.validUser);
+      mockAuthService.getCurrentUser.mockResolvedValueOnce(withoutPassword(mockUsers.validUser));
+      mockAuthService.isTokenNearExpiry.mockReturnValue(false);
+
+      const response = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.user).toBeDefined();
+      expectUserWithDates(response.body.data.user, withoutPassword(mockUsers.validUser));
+      expect(response.body.message).toBe('User profile retrieved successfully');
+      expect(mockAuthService.getCurrentUser).toHaveBeenCalledWith(validToken);
+    });
+
+    it('should reject request without authorization header', async () => {
+      const response = await request(app)
+        .get('/api/auth/profile')
+        .expect(401);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Authorization header required');
+      expect(response.body.code).toBe('MISSING_AUTH_HEADER');
+    });
+
+    it('should reject request with invalid token', async () => {
+      const invalidToken = MockAuthService.createInvalidToken();
+      mockAuthService.verifyToken.mockImplementation(() => {
+        throw new AuthError('Invalid token', 401, 'INVALID_TOKEN');
+      });
+
+      const response = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${invalidToken}`)
+        .expect(401);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Invalid token');
+      expect(response.body.code).toBe('INVALID_TOKEN');
+    });
+
+    it('should handle service error gracefully', async () => {
+      const validToken = MockAuthService.createMockToken();
+      mockAuthService.verifyToken.mockReturnValue(mockJWTPayloads.validUser);
+      mockAuthService.getCurrentUser.mockRejectedValueOnce(new Error('Database error'));
+      mockAuthService.isTokenNearExpiry.mockReturnValue(false);
+
+      const response = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(500);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Failed to fetch profile');
+      expect(response.body.code).toBe('INTERNAL_SERVER_ERROR');
+    });
+
+    it('should set near expiry headers when token is near expiry', async () => {
+      const nearExpiryToken = MockAuthService.createMockToken();
+      const expirationDate = new Date(Date.now() + 3600000);
+      
+      mockAuthService.verifyToken.mockReturnValue(mockJWTPayloads.validUser);
+      mockAuthService.getCurrentUser.mockResolvedValueOnce(withoutPassword(mockUsers.validUser));
+      mockAuthService.isTokenNearExpiry.mockReturnValue(true);
+      mockAuthService.getTokenExpiration.mockReturnValue(expirationDate);
+
+      const response = await request(app)
+        .get('/api/auth/profile')
         .set('Authorization', `Bearer ${nearExpiryToken}`)
         .expect(200);
 
@@ -857,7 +948,8 @@ describe('Auth Routes Integration', () => {
 
       expect(response.body).toMatchObject({
         success: false,
-        error: expect.any(String)
+        error: expect.any(String),
+        timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/)
       });
     });
 
@@ -881,6 +973,7 @@ describe('Auth Routes Integration', () => {
         .expect(400);
 
       expect(response.body.timestamp).toBeDefined();
+      expect(response.body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(new Date(response.body.timestamp)).toBeInstanceOf(Date);
     });
 

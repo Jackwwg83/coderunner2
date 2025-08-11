@@ -3,31 +3,116 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import mongoSanitize from 'express-mongo-sanitize';
+import rateLimit from 'express-rate-limit';
+import hpp from 'hpp';
 import { DatabaseService } from './services/database';
+import OAuthService from './services/oauth';
 import routes from './routes/index';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // Export app for testing
 export { app };
 
-// Security middleware
-app.use(helmet());
+// Security middleware - Enhanced protection
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"]
+    }
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
+}));
+
+// Rate limiting
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // limit each IP to 1000 requests per windowMs
+  message: {
+    success: false,
+    error: 'Too many requests from this IP, please try again later',
+    code: 'RATE_LIMIT_EXCEEDED'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+}));
+
+// HTTP Parameter Pollution protection
+app.use(hpp());
+
+// NoSQL Injection protection
+app.use(mongoSanitize());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: process.env.CORS_ORIGIN || 'http://localhost:8083',
   credentials: true
 }));
 
 // Logging middleware
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing middleware with enhanced security
+app.use(express.json({ 
+  limit: '10mb',
+  strict: true,
+  type: ['application/json', 'application/*+json']
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '10mb',
+  parameterLimit: 100 // Prevent parameter pollution
+}));
+
+// Initialize Passport for OAuth
+const oauthService = OAuthService.getInstance();
+app.use(oauthService.getPassport().initialize());
+
+// Additional input sanitization
+app.use((req, res, next) => {
+  // Basic XSS protection for string inputs
+  const sanitizeString = (str: string) => {
+    return str.replace(/<script[^>]*>.*?<\/script>/gi, '')
+             .replace(/<[^>]*>/g, '')
+             .replace(/javascript:/gi, '')
+             .replace(/on\w+=/gi, '');
+  };
+
+  const sanitizeObject = (obj: any) => {
+    if (typeof obj === 'string') {
+      return sanitizeString(obj);
+    }
+    if (typeof obj === 'object' && obj !== null) {
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          obj[key] = sanitizeObject(obj[key]);
+        }
+      }
+    }
+    return obj;
+  };
+
+  if (req.body) req.body = sanitizeObject(req.body);
+  if (req.query) req.query = sanitizeObject(req.query);
+  if (req.params) req.params = sanitizeObject(req.params);
+  
+  next();
+});
 
 // Health check endpoint
 app.get('/health', (_req, res) => {

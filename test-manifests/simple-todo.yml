@@ -1,0 +1,37 @@
+name: Simple Todo API
+version: 1.0.0
+description: Basic task management system
+
+entities:
+  - name: Task
+    fields:
+      - name: title
+        type: text
+        required: true
+        maxLength: 200
+        description: Task title
+      - name: description
+        type: longtext
+        description: Detailed task description
+      - name: priority
+        type: enum
+        enumValues: [low, medium, high, urgent]
+        defaultValue: medium
+        description: Task priority level
+      - name: status
+        type: enum
+        enumValues: [todo, in-progress, done]
+        defaultValue: todo
+        description: Current status
+      - name: dueDate
+        type: datetime
+        description: When task is due
+      - name: estimatedHours
+        type: number
+        min: 0
+        max: 1000
+        description: Estimated time to complete
+      - name: isCompleted
+        type: boolean
+        defaultValue: false
+        description: Completion status

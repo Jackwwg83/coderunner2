@@ -97,40 +97,160 @@ export class DatabaseService {
   }
 
   /**
-   * Health check method
+   * Enhanced health check method with detailed diagnostics
    */
-  public async healthCheck(): Promise<{ status: string; details: any }> {
+  public async healthCheck(): Promise<{ 
+    status: 'healthy' | 'degraded' | 'unhealthy' | 'error'; 
+    healthy: boolean;
+    connection: boolean;
+    latency: number;
+    poolSize: number;
+    activeConnections: number;
+    details: any 
+  }> {
+    const startTime = Date.now();
+    
     try {
       if (!this.pool) {
-        return { status: 'error', details: { message: 'Database pool not initialized' } };
+        return { 
+          status: 'error', 
+          healthy: false,
+          connection: false,
+          latency: 0,
+          poolSize: 0,
+          activeConnections: 0,
+          details: { 
+            message: 'Database pool not initialized',
+            environment: process.env.NODE_ENV,
+            timestamp: new Date().toISOString(),
+            suggestion: 'Call DatabaseService.connect() to initialize the connection pool'
+          } 
+        };
       }
 
-      const start = Date.now();
-      const result = await this.pool.query('SELECT NOW() as timestamp, version() as version');
-      const responseTime = Date.now() - start;
+      if (this.isShuttingDown) {
+        return { 
+          status: 'unhealthy', 
+          healthy: false,
+          connection: false,
+          latency: 0,
+          poolSize: 0,
+          activeConnections: 0,
+          details: { 
+            message: 'Database is shutting down',
+            environment: process.env.NODE_ENV,
+            timestamp: new Date().toISOString()
+          } 
+        };
+      }
 
+      // Perform health check query with timeout
+      const healthQuery = `
+        SELECT 
+          NOW() as current_timestamp,
+          version() as pg_version,
+          current_database() as database_name,
+          current_user as database_user,
+          inet_server_addr() as server_address,
+          inet_server_port() as server_port
+      `;
+      
+      const result = await this.pool.query(healthQuery);
+      const responseTime = Date.now() - startTime;
       const poolInfo = this.getPoolInfo();
       
+      // Determine health status based on response time and pool status
+      let status: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+      let message = 'Database connection is healthy';
+      
+      if (responseTime > 2000) { // 2 seconds
+        status = 'unhealthy';
+        message = `Database responding very slowly (${responseTime}ms)`;
+      } else if (responseTime > 500) { // 500ms
+        status = 'degraded';
+        message = `Database response time is elevated (${responseTime}ms)`;
+      }
+      
+      // Check pool health
+      const poolUtilization = (poolInfo.totalCount - poolInfo.idleCount) / poolInfo.totalCount;
+      if (poolUtilization > 0.9) {
+        status = status === 'healthy' ? 'degraded' : status;
+        message += ` | Pool utilization high (${Math.round(poolUtilization * 100)}%)`;
+      }
+      
+      if (poolInfo.waitingCount > 0) {
+        status = 'degraded';
+        message += ` | ${poolInfo.waitingCount} connections waiting`;
+      }
+      
       return {
-        status: 'healthy',
+        status,
+        healthy: status === 'healthy',
+        connection: true,
+        latency: responseTime,
+        poolSize: poolInfo.totalCount,
+        activeConnections: poolInfo.totalCount - poolInfo.idleCount,
         details: {
-          timestamp: result.rows[0].timestamp,
-          version: result.rows[0].version,
-          responseTime: `${responseTime}ms`,
-          pool: poolInfo,
-          connections: {
-            total: poolInfo.totalCount,
-            idle: poolInfo.idleCount,
-            waiting: poolInfo.waitingCount
+          message,
+          timestamp: result.rows[0].current_timestamp,
+          database: {
+            name: result.rows[0].database_name,
+            version: result.rows[0].pg_version,
+            user: result.rows[0].database_user,
+            server: {
+              address: result.rows[0].server_address,
+              port: result.rows[0].server_port
+            }
+          },
+          performance: {
+            responseTime: `${responseTime}ms`,
+            status: responseTime < 100 ? 'excellent' : responseTime < 500 ? 'good' : responseTime < 2000 ? 'slow' : 'critical'
+          },
+          pool: {
+            ...poolInfo,
+            utilization: `${Math.round(poolUtilization * 100)}%`,
+            health: poolInfo.waitingCount === 0 ? 'healthy' : 'stressed'
+          },
+          environment: process.env.NODE_ENV,
+          configuration: {
+            ssl: !!this.pool.options.ssl,
+            host: this.pool.options.host,
+            port: this.pool.options.port,
+            database: this.pool.options.database
           }
         }
       };
     } catch (error) {
+      const responseTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown database error';
+      
       return {
         status: 'error',
+        healthy: false,
+        connection: false,
+        latency: responseTime,
+        poolSize: this.pool?.totalCount || 0,
+        activeConnections: 0,
         details: {
-          message: error instanceof Error ? error.message : 'Unknown error',
-          timestamp: new Date().toISOString()
+          message: errorMessage,
+          errorType: error instanceof Error ? error.constructor.name : 'UnknownError',
+          timestamp: new Date().toISOString(),
+          environment: process.env.NODE_ENV,
+          troubleshooting: {
+            suggestions: [
+              'Check database server is running',
+              'Verify connection parameters in environment variables',
+              'Check network connectivity to database server',
+              'Verify database user permissions'
+            ],
+            common_causes: [
+              'Database server not running',
+              'Incorrect connection parameters',
+              'Network connectivity issues',
+              'Authentication failure',
+              'Database server overloaded'
+            ]
+          }
         }
       };
     }
@@ -299,14 +419,23 @@ export class DatabaseService {
 
   public getPoolInfo() {
     if (!this.pool) {
-      return { totalCount: 0, idleCount: 0, waitingCount: 0 };
+      return { 
+        totalCount: 0, 
+        idleCount: 0, 
+        waitingCount: 0, 
+        connectedClients: 0,
+        maxConnections: 0,
+        minConnections: 0
+      };
     }
 
     return {
       totalCount: this.pool.totalCount,
       idleCount: this.pool.idleCount,
       waitingCount: this.pool.waitingCount,
-      connectedClients: this.pool.totalCount - this.pool.idleCount
+      connectedClients: this.pool.totalCount - this.pool.idleCount,
+      maxConnections: this.pool.options.max || 10,
+      minConnections: this.pool.options.min || 0
     };
   }
 
@@ -318,16 +447,34 @@ export class DatabaseService {
    * Create a new user
    */
   public async createUser(input: CreateUserInput): Promise<User> {
-    const { email, password_hash, plan_type = 'free' } = input;
+    const { 
+      email, 
+      password_hash, 
+      plan_type = 'free',
+      name,
+      avatar_url,
+      oauth_provider,
+      oauth_id
+    } = input;
 
     const query = `
-      INSERT INTO users (email, password_hash, plan_type)
-      VALUES ($1, $2, $3)
+      INSERT INTO users (
+        email, password_hash, plan_type, name, avatar_url, oauth_provider, oauth_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
 
     try {
-      const result = await this.query(query, [email, password_hash, plan_type]);
+      const result = await this.query(query, [
+        email, 
+        password_hash, 
+        plan_type,
+        name || null,
+        avatar_url || null,
+        oauth_provider || null,
+        oauth_id || null
+      ]);
       return result.rows[0];
     } catch (error) {
       if (error instanceof Error && error.message.includes('unique_violation')) {

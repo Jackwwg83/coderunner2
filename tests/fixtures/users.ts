@@ -167,13 +167,5 @@ export const createMockCreateUserInput = (overrides: Partial<CreateUserInput> = 
 
 export const withoutPassword = (user: User) => {
   const { password_hash, ...userWithoutPassword } = user;
-  return {
-    ...userWithoutPassword,
-    created_at: userWithoutPassword.created_at instanceof Date 
-      ? userWithoutPassword.created_at.toISOString() 
-      : userWithoutPassword.created_at,
-    updated_at: userWithoutPassword.updated_at instanceof Date 
-      ? userWithoutPassword.updated_at.toISOString() 
-      : userWithoutPassword.updated_at
-  };
+  return userWithoutPassword;
 };

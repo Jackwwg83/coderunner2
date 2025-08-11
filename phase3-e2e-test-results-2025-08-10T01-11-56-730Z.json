@@ -1,0 +1,47 @@
+{
+  "summary": {
+    "totalTests": 10,
+    "passed": 8,
+    "failed": 2,
+    "successRate": 80,
+    "totalDuration": 381,
+    "timestamp": "2025-08-10T01:11:56.727Z"
+  },
+  "errors": [
+    {
+      "test": "API Endpoints Discovery",
+      "duration": 11
+    },
+    {
+      "test": "Database Templates API",
+      "duration": 7
+    }
+  ],
+  "performance": {
+    "testDurations": {
+      "Backend Health Check": 24,
+      "Frontend Connectivity": 88,
+      "API Endpoints Discovery": 11,
+      "Database Templates API": 7,
+      "Static File Serving": 2,
+      "Performance Benchmarks": 11,
+      "Database Management UI Routes": 144,
+      "Configuration and Environment": 2,
+      "Error Handling and Security": 6,
+      "Integration Points": 82
+    },
+    "averageDuration": 37.7,
+    "slowestTest": {
+      "name": "Database Management UI Routes",
+      "duration": 144
+    }
+  },
+  "phase3Status": {
+    "overall": "GOOD",
+    "emoji": "🟡",
+    "readiness": 80,
+    "recommendation": "Phase 3 is ready with minor issues that can be addressed post-deployment",
+    "criticalIssues": 2,
+    "performanceScore": "GOOD"
+  }
+}

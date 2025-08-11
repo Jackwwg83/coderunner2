@@ -501,7 +501,7 @@ describe('ProjectAnalyzer', () => {
         expect(result.totalFiles).toBe(1);
         expect(result.totalLines).toBe(50000 + 1); // +1 for the final newline
         expect(result.languages).toHaveProperty('javascript');
-        expect(result.languages.javascript.lines).toBe(50000);
+        expect(result.languages.javascript.lines).toBe(50000 + 1); // Same counting logic as totalLines
       });
 
       it('should handle special characters in file names', async () => {

@@ -1,0 +1,166 @@
+# CodeRunner v2.0 - Production Docker Compose
+# For 6-day MVP sprint production deployment
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: coderunner-postgres-prod
+    environment:
+      POSTGRES_DB: ${DB_NAME:-coderunner}
+      POSTGRES_USER: ${DB_USER:-coderunner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./src/migrations:/docker-entrypoint-initdb.d
+      - ./backups:/backups
+    networks:
+      - app-prod
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-coderunner}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # CodeRunner API
+  api:
+    image: coderunner:${IMAGE_TAG:-latest}
+    container_name: coderunner-api-prod
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-coderunner}
+      - DB_USER=${DB_USER:-coderunner}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:8090}
+      - LOG_LEVEL=info
+      - RATE_LIMIT_WINDOW_MS=900000
+      - RATE_LIMIT_MAX_REQUESTS=100
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-prod
+    restart: always
+    volumes:
+      - ./logs:/app/logs
+      - api_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Redis (for caching and WebSocket scaling)
+  redis:
+    image: redis:7-alpine
+    container_name: coderunner-redis-prod
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis123} --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data_prod:/data
+    networks:
+      - app-prod
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # Nginx Reverse Proxy (optional for HTTPS)
+  nginx:
+    image: nginx:alpine
+    container_name: coderunner-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - app-prod
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Backup service
+  backup:
+    image: postgres:16-alpine
+    container_name: coderunner-backup
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    depends_on:
+      - postgres
+    networks:
+      - app-prod
+    restart: "no"
+    profiles:
+      - backup
+    command: |
+      sh -c "
+        echo 'Backup service ready. Run with: docker-compose --profile backup run backup'
+        tail -f /dev/null
+      "
+
+networks:
+  app-prod:
+    driver: bridge
+    name: coderunner-app-prod
+
+volumes:
+  postgres_data_prod:
+    name: coderunner-postgres-data-prod
+  redis_data_prod:
+    name: coderunner-redis-data-prod
+  api_uploads:
+    name: coderunner-api-uploads

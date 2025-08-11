@@ -6,8 +6,46 @@ import {
   CreateDeploymentInput,
   ProjectFile 
 } from '../types/index';
-import { Sandbox, SandboxError, TimeoutError, NotFoundError } from 'agentsphere-js';
+// Import AgentSphere SDK with fallback to mock
+let Sandbox: any;
+let SandboxType: any;
+try {
+  const agentsphere = require('agentsphere-js');
+  Sandbox = agentsphere.Sandbox;
+  SandboxType = agentsphere.Sandbox;
+} catch (error) {
+  console.warn('AgentSphere SDK not found, using mock implementation');
+  const mockModule = require('./mocks/agentsphere');
+  Sandbox = mockModule.Sandbox;
+  SandboxType = mockModule.Sandbox;
+}
+
+// Type alias for better TypeScript support
+type SandboxInstance = InstanceType<typeof SandboxType>;
+
+// Custom error types for AgentSphere integration
+class SandboxError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SandboxError';
+  }
+}
+
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutError';
+  }
+}
+
+class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
 import { DatabaseService } from './database';
+import { ConfigurationService } from './configuration';
 import { ProjectAnalyzer, ProjectAnalysis } from '../utils/analyzer';
 import { ManifestEngine } from './manifestEngine';
 import { EventEmitter } from 'events';
@@ -17,26 +55,8 @@ import { loadOrchestrationConfig } from '../config/orchestration';
  * Deployment timeout strategies based on project type and complexity
  */
 
-/**
- * Sandbox resource limits and monitoring
- */
-interface SandboxLimits {
-  maxConcurrentPerUser: number;
-  memoryLimitMB: number;
-  diskLimitMB: number;
-  cpuLimit: number;
-}
-
-/**
- * Deployment health check configuration
- */
-interface HealthCheckConfig {
-  enabled: boolean;
-  interval: number;
-  timeout: number;
-  retries: number;
-  endpoints?: string[];
-}
+// Note: Removed unused interfaces SandboxLimits and HealthCheckConfig
+// They will be re-added when actually needed for implementation
 
 /**
  * Deployment configuration interface
@@ -74,11 +94,12 @@ export class OrchestrationService extends EventEmitter {
   private static instance: OrchestrationService;
   private executionQueue: Map<string, ExecutionRequest> = new Map();
   private executionResults: Map<string, ExecutionResult> = new Map();
-  private activeSandboxes: Map<string, Sandbox> = new Map();
+  private activeSandboxes: Map<string, SandboxInstance> = new Map();
   private sandboxMetadata: Map<string, { userId: string; projectId: string; createdAt: Date; lastActivity: Date; }> = new Map();
   private cleanupInterval?: NodeJS.Timeout;
   private healthCheckInterval?: NodeJS.Timeout;
   private db: DatabaseService;
+  private configService: ConfigurationService;
   
   // Configuration loaded from environment and defaults
   private readonly config = loadOrchestrationConfig();
@@ -86,6 +107,7 @@ export class OrchestrationService extends EventEmitter {
   private constructor() {
     super();
     this.db = DatabaseService.getInstance();
+    this.configService = ConfigurationService.getInstance();
     this.initializeService();
     console.log('OrchestrationService initialized with AgentSphere SDK integration');
   }
@@ -137,6 +159,25 @@ export class OrchestrationService extends EventEmitter {
   }
 
   /**
+   * Load environment configuration for deployment
+   * @param projectId - Project identifier
+   * @param environment - Environment name (development, staging, production)
+   */
+  private async loadEnvironmentConfig(
+    projectId: string,
+    environment: string = 'development'
+  ): Promise<Record<string, string>> {
+    try {
+      const configData = await this.configService.getConfigurationForDeployment(projectId, environment);
+      console.log(`✅ Loaded ${Object.keys(configData.variables).length} environment variables for ${environment}`);
+      return configData.variables;
+    } catch (error) {
+      console.warn(`⚠️ Failed to load environment configuration for ${projectId}/${environment}:`, error instanceof Error ? error.message : 'Unknown error');
+      return {};
+    }
+  }
+
+  /**
    * Deploy a project to a new sandbox with full lifecycle management
    * Supports both Node.js and Manifest project types
    * 
@@ -153,6 +194,7 @@ export class OrchestrationService extends EventEmitter {
     let projectAnalysis: ProjectAnalysis;
     let finalFiles: ProjectFile[] = files;
     let deployment: any;
+    let sandbox: SandboxInstance | undefined;
     
     console.log(`🚀 Starting deployment for user ${userId} with ${files.length} files`);
     
@@ -197,14 +239,47 @@ export class OrchestrationService extends EventEmitter {
       deployment = await this.db.createDeployment(deploymentInput);
       console.log(`✅ Created deployment: ${deployment.id}`);
       
+      // Step 4.5: Load environment configuration
+      console.log('🔧 Loading environment configuration...');
+      const envVars = await this.loadEnvironmentConfig(
+        deployment.project_id, 
+        config.env?.NODE_ENV || 'development'
+      );
+      
+      // Merge with provided config environment variables (config takes precedence)
+      const finalEnvVars = { ...envVars, ...(config.env || {}) };
+      config.env = finalEnvVars;
+      
+      console.log(`✅ Environment configuration loaded: ${Object.keys(finalEnvVars).length} variables`);
+      
       // Step 5: Update status to deploying
       await this.updateDeploymentStatus(deployment.id, DeploymentStatus.PROVISIONING);
       
       // Step 6: Create AgentSphere sandbox
       console.log('🏗️ Creating AgentSphere sandbox...');
-      const template = this.getTemplateForProjectType(projectAnalysis.projectType);
-      const sandbox = await Sandbox.create(template);
-      const sandboxId = sandbox.sandboxId;
+      sandbox = new Sandbox();
+      
+      // Set sandbox metadata and environment
+      await sandbox.initialize({
+        timeout: config.timeout || 300, // seconds
+        metadata: {
+          userId,
+          projectId: deployment.project_id,
+          deploymentId,
+          environment: config.env?.NODE_ENV || 'development',
+          projectType: projectAnalysis.projectType,
+          framework: projectAnalysis.framework
+        },
+        envs: {
+          AGENTSPHERE_SANDBOX: 'true',
+          NODE_ENV: config.env?.NODE_ENV || 'development',
+          ...config.env
+        }
+      });
+      
+      // Wait for sandbox to be ready and get sandbox ID
+      const sandboxInfo = sandbox.getInfo();
+      const sandboxId = sandboxInfo.sandbox_id;
       
       // Store sandbox metadata
       this.activeSandboxes.set(sandboxId, sandbox);
@@ -239,6 +314,16 @@ export class OrchestrationService extends EventEmitter {
     } catch (error) {
       console.error(`❌ Deployment failed for user ${userId}:`, error);
       
+      // Clean up sandbox if it was created
+      if (sandbox) {
+        try {
+          await sandbox.kill();
+          console.log('🧹 Cleaned up failed sandbox');
+        } catch (cleanupError) {
+          console.error('Failed to cleanup sandbox after deployment failure:', cleanupError);
+        }
+      }
+      
       // Update deployment status to failed if deployment was created
       try {
         const deployment = await this.db.getDeploymentById(deploymentId);
@@ -250,6 +335,16 @@ export class OrchestrationService extends EventEmitter {
       }
       
       throw new Error(`Deployment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      // Ensure cleanup happens regardless of success or failure
+      if (sandbox && this.activeSandboxes.has(sandbox.getInfo().sandbox_id)) {
+        // Only keep sandbox active if deployment was successful
+        const deploymentStatus = deployment ? await this.db.getDeploymentById(deployment.id) : null;
+        if (!deploymentStatus || deploymentStatus.status === DeploymentStatus.FAILED) {
+          this.activeSandboxes.delete(sandbox.getInfo().sandbox_id);
+          this.sandboxMetadata.delete(sandbox.getInfo().sandbox_id);
+        }
+      }
     }
   }
 
@@ -258,13 +353,18 @@ export class OrchestrationService extends EventEmitter {
    */
   public async submitExecution(request: ExecutionRequest): Promise<string> {
     const files = request.files || [];
+    const config: any = {
+      env: request.environment ? { NODE_ENV: request.environment } : {}
+    };
+    
+    if (request.timeout) {
+      config.timeout = request.timeout;
+    }
+    
     const result = await this.deployProject(
       request.userId,
       files,
-      {
-        timeout: request.timeout,
-        env: request.environment ? { NODE_ENV: request.environment } : {}
-      }
+      config
     );
     
     return result.id;
@@ -390,7 +490,7 @@ export class OrchestrationService extends EventEmitter {
     
     console.log(`🧹 Starting cleanup process (${this.activeSandboxes.size} active sandboxes)`);
     
-    for (const [sandboxId, sandbox] of Array.from(this.activeSandboxes.entries())) {
+    for (const [sandboxId] of Array.from(this.activeSandboxes.entries())) {
       const metadata = this.sandboxMetadata.get(sandboxId);
       
       if (!metadata) {
@@ -470,8 +570,8 @@ export class OrchestrationService extends EventEmitter {
       // Cleanup sandbox if exists
       if (deployment.app_sandbox_id) {
         const cleanupResult = await this.cleanupSandboxes({
-          force: true,
-          userId: undefined // Clean specific sandbox regardless of user
+          force: true
+          // userId: undefined - removing this property to avoid type error
         });
         
         console.log(`Execution ${executionId} cancelled, cleanup result:`, cleanupResult);
@@ -498,7 +598,6 @@ export class OrchestrationService extends EventEmitter {
 
   /**
    * Get system execution statistics
-   * TODO: Implement with real metrics
    */
   public async getExecutionStats(): Promise<{
     totalExecutions: number;
@@ -506,13 +605,66 @@ export class OrchestrationService extends EventEmitter {
     queuedExecutions: number;
     averageExecutionTime: number;
   }> {
-    // TODO: Implement with actual statistics
+    const runningSandboxes = await this.listActiveSandboxes();
+    
     return {
       totalExecutions: this.executionQueue.size,
-      activeExecutions: 0,
+      activeExecutions: runningSandboxes.length,
       queuedExecutions: this.executionQueue.size,
-      averageExecutionTime: 0
+      averageExecutionTime: 0 // TODO: Calculate from deployment records
     };
+  }
+
+  /**
+   * List all active sandboxes from AgentSphere
+   */
+  public async listActiveSandboxes(): Promise<Array<{
+    sandboxId: string;
+    metadata: Record<string, any>;
+    startedAt: Date;
+    endAt: Date;
+  }>> {
+    try {
+      const runningSandboxes = await Sandbox.list();
+      return runningSandboxes.map(info => ({
+        sandboxId: info.sandbox_id,
+        metadata: info.metadata,
+        startedAt: info.started_at,
+        endAt: info.end_at
+      }));
+    } catch (error) {
+      console.error('Failed to list active sandboxes:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Connect to an existing sandbox
+   */
+  public async connectToSandbox(sandboxId: string): Promise<SandboxInstance | null> {
+    try {
+      const sandbox = await Sandbox.connect(sandboxId);
+      
+      // Add to our tracking
+      this.activeSandboxes.set(sandboxId, sandbox);
+      
+      // Try to get metadata from sandbox info
+      const info = sandbox.getInfo();
+      if (info.metadata) {
+        this.sandboxMetadata.set(sandboxId, {
+          userId: info.metadata.userId || 'unknown',
+          projectId: info.metadata.projectId || 'unknown',
+          createdAt: info.started_at,
+          lastActivity: new Date()
+        });
+      }
+      
+      console.log(`✅ Successfully connected to existing sandbox: ${sandboxId}`);
+      return sandbox;
+    } catch (error) {
+      console.error(`❌ Failed to connect to sandbox ${sandboxId}:`, error);
+      return null;
+    }
   }
 
   /**
@@ -551,12 +703,7 @@ export class OrchestrationService extends EventEmitter {
     return strategy;
   }
 
-  /**
-   * Get deployment timeout strategy based on project characteristics
-   */
-  private getTimeoutStrategy(projectType: 'simple' | 'complex' | 'enterprise') {
-    return this.config.timeouts[projectType];
-  }
+  // Note: Removed unused getTimeoutStrategy method
 
   /**
    * Classify error for recovery strategy
@@ -609,20 +756,20 @@ export class OrchestrationService extends EventEmitter {
     const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 30000); // Exponential backoff, max 30s
     
     switch (errorInfo.type) {
-      case 'timeout':
-        return { recovered: false, action: 'retry', nextRetryIn: backoffTime };
+    case 'timeout':
+      return { recovered: false, action: 'retry', nextRetryIn: backoffTime };
       
-      case 'network':
-        return { recovered: false, action: 'retry', nextRetryIn: backoffTime * 2 };
+    case 'network':
+      return { recovered: false, action: 'retry', nextRetryIn: backoffTime * 2 };
       
-      case 'resource':
-        if (stage === 'provisioning') {
-          return { recovered: false, action: 'fallback', nextRetryIn: backoffTime };
-        }
-        return { recovered: false, action: 'abort' };
+    case 'resource':
+      if (stage === 'provisioning') {
+        return { recovered: false, action: 'fallback', nextRetryIn: backoffTime };
+      }
+      return { recovered: false, action: 'abort' };
       
-      default:
-        return { recovered: false, action: 'retry', nextRetryIn: backoffTime };
+    default:
+      return { recovered: false, action: 'retry', nextRetryIn: backoffTime };
     }
   }
 
@@ -711,32 +858,7 @@ export class OrchestrationService extends EventEmitter {
     }
   }
 
-  /**
-   * Create a new sandbox with proper configuration
-   */
-  private async createSandbox(
-    userId: string, 
-    projectId: string, 
-    deploymentId: string,
-    template: string
-  ): Promise<Sandbox> {
-    try {
-      const sandbox = await Sandbox.create(template, {
-        timeoutMs: this.getTimeoutForProject(template),
-        metadata: {
-          userId,
-          projectId,
-          deploymentId,
-          createdAt: new Date().toISOString()
-        }
-      });
-      
-      return sandbox;
-    } catch (error) {
-      console.error('Failed to create sandbox:', error);
-      throw new SandboxError(`Sandbox creation failed: ${error}`);
-    }
-  }
+  // Note: Removed unused createSandbox method - using direct Sandbox.create instead
 
   /**
    * Execute the complete deployment process in a sandbox
@@ -744,7 +866,7 @@ export class OrchestrationService extends EventEmitter {
   private async executeDeploymentProcess(
     deploymentId: string,
     sandboxId: string,
-    sandbox: Sandbox,
+    sandbox: SandboxInstance,
     files: ProjectFile[],
     projectAnalysis: ProjectAnalysis,
     config: DeploymentConfig
@@ -755,27 +877,43 @@ export class OrchestrationService extends EventEmitter {
     try {
       console.log(`🏗️ Executing deployment process for ${deploymentId}`);
       
-      // Step 1: Upload files to sandbox
+      // Step 1: Upload files to sandbox (batch upload for better performance)
       console.log('📁 Uploading project files...');
-      for (const file of files) {
-        await sandbox.files.write(file.path, file.content);
-        console.log(`  ✅ Uploaded: ${file.path}`);
+      
+      // Upload files in batches for better performance and reliability
+      const batchSize = 10;
+      const fileBatches = [];
+      for (let i = 0; i < files.length; i += batchSize) {
+        fileBatches.push(files.slice(i, i + batchSize));
       }
       
-      // Step 2: Set environment variables
-      if (config.env) {
-        console.log('🌍 Setting environment variables...');
-        for (const [key, value] of Object.entries(config.env)) {
-          // Note: AgentSphere SDK might handle env vars differently
-          console.log(`  ✅ Set env: ${key}`);
-        }
+      for (let i = 0; i < fileBatches.length; i++) {
+        const batch = fileBatches[i];
+        const filesToWrite = batch.map(file => ({
+          path: file.path,
+          data: file.content
+        }));
+        
+        await sandbox.files.write(filesToWrite);
+        console.log(`  ✅ Uploaded batch ${i + 1}/${fileBatches.length} (${batch.length} files)`);
+      }
+      
+      console.log(`  ✅ All ${files.length} files uploaded successfully`);
+      
+      // Step 2: Environment variables are already set during sandbox creation
+      // The environment variables were passed to the Sandbox constructor
+      if (config.env && Object.keys(config.env).length > 0) {
+        console.log('🌍 Environment variables configured:');
+        Object.keys(config.env).forEach(key => {
+          console.log(`  ✅ ${key}`);
+        });
       }
       
       // Step 3: Install dependencies
       console.log('📦 Installing dependencies...');
       await this.updateDeploymentStatus(deploymentId, DeploymentStatus.BUILDING);
       
-      const installResult = await Promise.race([
+      await Promise.race([
         sandbox.commands.run('npm install'),
         new Promise((_, reject) => 
           setTimeout(() => reject(new TimeoutError('npm install timeout')), timeout / 2)
@@ -794,7 +932,8 @@ export class OrchestrationService extends EventEmitter {
       // Step 5: Get public URL
       console.log('🌐 Getting public URL...');
       const port = config.port || 3000;
-      const publicUrl = sandbox.getHost(port);
+      const host = sandbox.getHost(port);
+      const publicUrl = `https://${host}`;
       
       if (!publicUrl) {
         throw new Error('Failed to get public URL from sandbox');
@@ -822,7 +961,7 @@ export class OrchestrationService extends EventEmitter {
       
     } catch (error) {
       console.error(`❌ Deployment process failed for ${deploymentId}:`, error);
-      await this.handleDeploymentError(deploymentId, error);
+      await this.handleDeploymentError(deploymentId, error instanceof Error ? error : new Error(String(error)));
       
       return {
         id: deploymentId,
@@ -870,17 +1009,65 @@ export class OrchestrationService extends EventEmitter {
    * Perform health check on a sandbox
    */
   private async performHealthCheck(
-    sandbox: Sandbox, 
+    sandbox: SandboxInstance, 
     publicUrl?: string
   ): Promise<'healthy' | 'unhealthy' | 'unknown'> {
     try {
-      if (!publicUrl) {
-        return 'unknown';
+      // Check if sandbox is still running
+      const sandboxInfo = sandbox.getInfo();
+      if (!sandboxInfo || sandboxInfo.status !== 'running') {
+        return 'unhealthy';
       }
       
-      // TODO: Implement actual health check
-      // For now, just return healthy if sandbox exists
-      return sandbox ? 'healthy' : 'unhealthy';
+      // If public URL is provided, try to make a health check request
+      if (publicUrl) {
+        try {
+          const healthCheckUrl = `${publicUrl}/health`;
+          
+          // Create AbortController for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          const response = await fetch(healthCheckUrl, {
+            method: 'GET',
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'CodeRunner-HealthCheck/1.0'
+            }
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            return 'healthy';
+          } else if (response.status >= 400 && response.status < 500) {
+            // 4xx errors might mean the health endpoint doesn't exist, but app is running
+            // Try to check if the main page is accessible
+            const mainController = new AbortController();
+            const mainTimeoutId = setTimeout(() => mainController.abort(), 5000);
+            
+            const mainResponse = await fetch(publicUrl, {
+              method: 'GET',
+              signal: mainController.signal,
+              headers: {
+                'User-Agent': 'CodeRunner-HealthCheck/1.0'
+              }
+            });
+            
+            clearTimeout(mainTimeoutId);
+            return mainResponse.ok ? 'healthy' : 'unhealthy';
+          } else {
+            return 'unhealthy';
+          }
+        } catch (fetchError) {
+          console.warn('Health check HTTP request failed:', fetchError);
+          // If HTTP check fails, fall back to sandbox status check
+          return sandboxInfo.status === 'running' ? 'unknown' : 'unhealthy';
+        }
+      }
+      
+      // No public URL provided, just check sandbox status
+      return sandboxInfo.status === 'running' ? 'healthy' : 'unhealthy';
       
     } catch (error) {
       console.error('Health check failed:', error);
@@ -891,13 +1078,74 @@ export class OrchestrationService extends EventEmitter {
   /**
    * Get sandbox logs
    */
-  private async getSandboxLogs(sandbox: Sandbox): Promise<string[]> {
+  private async getSandboxLogs(sandbox: SandboxInstance): Promise<string[]> {
     try {
-      // TODO: Implement log retrieval from sandbox
-      return ['Sample log entry 1', 'Sample log entry 2'];
+      // Get logs from sandbox commands and processes
+      const logs: string[] = [];
+      
+      // Try to get application logs
+      try {
+        const appLogResult = await sandbox.commands.run('tail -n 50 ~/.pm2/logs/*.log 2>/dev/null || echo "No PM2 logs found"');
+        if (appLogResult.stdout) {
+          logs.push(...appLogResult.stdout.split('\n').filter(line => line.trim()));
+        }
+      } catch (error) {
+        console.warn('Failed to get PM2 logs:', error);
+      }
+      
+      // Try to get npm logs
+      try {
+        const npmLogResult = await sandbox.commands.run('tail -n 20 npm-debug.log 2>/dev/null || echo "No npm debug log"');
+        if (npmLogResult.stdout) {
+          logs.push(...npmLogResult.stdout.split('\n').filter(line => line.trim()));
+        }
+      } catch (error) {
+        console.warn('Failed to get npm logs:', error);
+      }
+      
+      // Try to get system logs related to Node.js
+      try {
+        const systemLogResult = await sandbox.commands.run('journalctl --no-pager -n 20 -u node* 2>/dev/null || echo "No system logs"');
+        if (systemLogResult.stdout) {
+          logs.push(...systemLogResult.stdout.split('\n').filter(line => line.trim()));
+        }
+      } catch (error) {
+        console.warn('Failed to get system logs:', error);
+      }
+      
+      // Get recent console output if available
+      try {
+        const consoleLogResult = await sandbox.commands.run('tail -n 30 /tmp/app.log 2>/dev/null || tail -n 30 /var/log/application.log 2>/dev/null || echo "No application log files"');
+        if (consoleLogResult.stdout) {
+          logs.push(...consoleLogResult.stdout.split('\n').filter(line => line.trim()));
+        }
+      } catch (error) {
+        console.warn('Failed to get application logs:', error);
+      }
+      
+      // If no logs found, return basic status
+      if (logs.length === 0 || logs.every(log => log.includes('No ') || log.trim() === '')) {
+        const sandboxInfo = sandbox.getInfo();
+        return [
+          `Sandbox Status: ${sandboxInfo.status}`,
+          `Created: ${sandboxInfo.started_at}`,
+          `Sandbox ID: ${sandboxInfo.sandbox_id}`,
+          'No application logs available'
+        ];
+      }
+      
+      // Limit to most recent 100 log lines and add timestamps
+      const recentLogs = logs.slice(-100).map(log => {
+        if (!log.includes('[') || !log.includes(']')) {
+          return `[${new Date().toISOString()}] ${log}`;
+        }
+        return log;
+      });
+      
+      return recentLogs;
     } catch (error) {
       console.error('Failed to get sandbox logs:', error);
-      return [];
+      return [`Error retrieving logs: ${error instanceof Error ? error.message : 'Unknown error'}`];
     }
   }
 
@@ -913,8 +1161,7 @@ export class OrchestrationService extends EventEmitter {
       const sandbox = this.activeSandboxes.get(sandboxId);
       
       if (sandbox) {
-        // TODO: Properly terminate sandbox
-        // await sandbox.destroy();
+        await sandbox.kill();
       }
       
       // Remove from tracking
@@ -939,42 +1186,28 @@ export class OrchestrationService extends EventEmitter {
     }
   }
 
-  /**
-   * Get timeout based on project type (in milliseconds)
-   */
-  private getTimeoutForProject(template: string): number {
-    // Simple heuristic based on template type
-    if (template.includes('nodejs') || template.includes('python')) {
-      return this.config.timeouts.simple.initial * 1000; // Convert to milliseconds
-    }
-    
-    if (template.includes('java') || template.includes('scala')) {
-      return this.config.timeouts.complex.initial * 1000;
-    }
-    
-    return this.config.timeouts.simple.initial * 1000;
-  }
+  // Note: Removed unused getTimeoutForProject method
 
   /**
    * Map deployment status to execution status
    */
   private mapDeploymentStatusToExecution(status: DeploymentStatus): ExecutionStatus {
     switch (status) {
-      case DeploymentStatus.PENDING:
-      case DeploymentStatus.PROVISIONING:
-        return ExecutionStatus.QUEUED;
-      case DeploymentStatus.BUILDING:
-        return ExecutionStatus.PENDING;
-      case DeploymentStatus.RUNNING:
-        return ExecutionStatus.RUNNING;
-      case DeploymentStatus.STOPPED:
-        return ExecutionStatus.CANCELLED;
-      case DeploymentStatus.FAILED:
-        return ExecutionStatus.FAILED;
-      case DeploymentStatus.DESTROYED:
-        return ExecutionStatus.CANCELLED;
-      default:
-        return ExecutionStatus.PENDING;
+    case DeploymentStatus.PENDING:
+    case DeploymentStatus.PROVISIONING:
+      return ExecutionStatus.QUEUED;
+    case DeploymentStatus.BUILDING:
+      return ExecutionStatus.PENDING;
+    case DeploymentStatus.RUNNING:
+      return ExecutionStatus.RUNNING;
+    case DeploymentStatus.STOPPED:
+      return ExecutionStatus.CANCELLED;
+    case DeploymentStatus.FAILED:
+      return ExecutionStatus.FAILED;
+    case DeploymentStatus.DESTROYED:
+      return ExecutionStatus.CANCELLED;
+    default:
+      return ExecutionStatus.PENDING;
     }
   }
 
@@ -986,37 +1219,58 @@ export class OrchestrationService extends EventEmitter {
   }
 
   /**
-   * Get appropriate template for project type
+   * Get appropriate template for project type (deprecated - kept for compatibility)
+   * Note: AgentSphere SDK doesn't use templates in constructor
    */
   private getTemplateForProjectType(projectType: 'nodejs' | 'manifest'): string {
+    // This method is kept for backward compatibility but is not used in the new implementation
     switch (projectType) {
-      case 'nodejs':
-        return 'template-nodejs-18';
-      case 'manifest':
-        // Manifest generates Node.js projects
-        return 'template-nodejs-18';
-      default:
-        return 'template-nodejs-18';
+    case 'nodejs':
+      return 'template-nodejs-18';
+    case 'manifest':
+      // Manifest generates Node.js projects
+      return 'template-nodejs-18';
+    default:
+      return 'template-nodejs-18';
     }
   }
-  
+
   /**
-   * Get project ID from deployment
+   * Find existing sandbox for a user
    */
-  private async getProjectIdFromDeployment(deploymentId: string): Promise<string> {
+  public async findUserSandbox(userId: string, projectId?: string): Promise<{
+    sandbox: SandboxInstance;
+    sandboxId: string;
+  } | null> {
     try {
-      const deployment = await this.db.getDeploymentById(deploymentId);
-      return deployment?.project_id || 'unknown';
+      const runningSandboxes = await Sandbox.list();
+      
+      const userSandbox = runningSandboxes.find(info => {
+        if (!info.metadata) return false;
+        if (info.metadata.userId !== userId) return false;
+        if (projectId && info.metadata.projectId !== projectId) return false;
+        return true;
+      });
+      
+      if (userSandbox) {
+        const sandbox = await this.connectToSandbox(userSandbox.sandbox_id);
+        if (sandbox) {
+          return {
+            sandbox,
+            sandboxId: userSandbox.sandbox_id
+          };
+        }
+      }
+      
+      return null;
     } catch (error) {
-      console.error('Failed to get project ID from deployment:', error);
-      return 'unknown';
+      console.error('Error finding user sandbox:', error);
+      return null;
     }
   }
   
-  /**
-   * Generate unique sandbox ID
-   */
-  private generateSandboxId(): string {
-    return `sb_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
+  // Note: Removed unused utility methods:
+  // - getProjectIdFromDeployment
+  // - generateSandboxId
+  // They can be re-added when actually needed
 }

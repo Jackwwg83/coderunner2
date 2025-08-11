@@ -1,0 +1,271 @@
+config:
+  target: 'http://localhost:3000'
+  phases:
+    # Warm-up phase
+    - duration: 30
+      arrivalRate: 5
+      name: "Warm-up"
+    
+    # Ramp-up phase
+    - duration: 60
+      arrivalRate: 10
+      rampTo: 50
+      name: "Ramp-up load"
+    
+    # Sustained load phase
+    - duration: 120
+      arrivalRate: 50
+      name: "Sustained load"
+    
+    # Spike test phase
+    - duration: 60
+      arrivalRate: 100
+      name: "Spike test"
+    
+    # Cool-down phase
+    - duration: 30
+      arrivalRate: 10
+      name: "Cool-down"
+
+  defaults:
+    headers:
+      Content-Type: 'application/json'
+      Accept: 'application/json'
+
+  # Performance thresholds
+  ensure:
+    # Response time thresholds
+    - http.response_time.p95: 1000  # 95% of requests under 1s
+    - http.response_time.p99: 2000  # 99% of requests under 2s
+    - http.response_time.max: 5000  # Max response time 5s
+    
+    # Error rate thresholds
+    - http.request_rate: 40         # Minimum requests per second
+    - http.codes.200: 95            # 95% success rate
+    - http.codes.4xx: 3             # Max 3% client errors
+    - http.codes.5xx: 1             # Max 1% server errors
+
+  # Load testing plugins
+  plugins:
+    expect: {}
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+
+# Test scenarios
+scenarios:
+  - name: "Authentication Flow"
+    weight: 30
+    flow:
+      # Health check
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+            - contentType: json
+      
+      # User registration
+      - post:
+          url: "/api/auth/register"
+          json:
+            email: "test{{ $randomNumber() }}@example.com"
+            password: "TestPassword123!"
+            name: "Load Test User"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+            - json: "$.data.user.id"
+              as: "userId"
+          expect:
+            - statusCode: 201
+            - hasProperty: "data.token"
+      
+      # User login
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ email }}"
+            password: "TestPassword123!"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data.token"
+      
+      # Get user profile
+      - get:
+          url: "/api/auth/me"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data.user"
+
+  - name: "Project Management"
+    weight: 40
+    flow:
+      # Login first
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "loadtest@example.com"
+            password: "TestPassword123!"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+      
+      # List projects
+      - get:
+          url: "/api/projects"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data.projects"
+      
+      # Create project
+      - post:
+          url: "/api/projects"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            name: "Load Test Project {{ $randomNumber() }}"
+            description: "Project created during load testing"
+            type: "nodejs"
+          capture:
+            - json: "$.data.project.id"
+              as: "projectId"
+          expect:
+            - statusCode: 201
+            - hasProperty: "data.project.id"
+      
+      # Get project details
+      - get:
+          url: "/api/projects/{{ projectId }}"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data.project"
+      
+      # Update project
+      - put:
+          url: "/api/projects/{{ projectId }}"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            description: "Updated during load test"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data.project"
+      
+      # Delete project (cleanup)
+      - delete:
+          url: "/api/projects/{{ projectId }}"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+
+  - name: "Deployment Operations"
+    weight: 20
+    flow:
+      # Login
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "loadtest@example.com"
+            password: "TestPassword123!"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+      
+      # Create project for deployment
+      - post:
+          url: "/api/projects"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            name: "Deploy Test {{ $randomNumber() }}"
+            type: "nodejs"
+          capture:
+            - json: "$.data.project.id"
+              as: "projectId"
+      
+      # Simulate deployment (this would be actual deployment in real scenario)
+      - post:
+          url: "/api/projects/{{ projectId }}/deploy"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            runtime: "nodejs"
+            files:
+              - name: "package.json"
+                content: |
+                  {
+                    "name": "test-app",
+                    "version": "1.0.0",
+                    "main": "index.js",
+                    "scripts": {"start": "node index.js"}
+                  }
+              - name: "index.js"
+                content: |
+                  const express = require('express');
+                  const app = express();
+                  app.get('/', (req, res) => res.send('Hello World!'));
+                  app.listen(3000);
+          capture:
+            - json: "$.data.deployment.id"
+              as: "deploymentId"
+          expect:
+            - statusCode: 202  # Accepted for processing
+      
+      # Check deployment status
+      - get:
+          url: "/api/deployments/{{ deploymentId }}/status"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data.deployment"
+      
+      # List all deployments
+      - get:
+          url: "/api/deployments"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data.deployments"
+
+  - name: "WebSocket Connection Test"
+    weight: 10
+    engine: ws
+    flow:
+      # Connect to WebSocket
+      - connect:
+          target: "ws://localhost:3000/socket.io/?EIO=4&transport=websocket"
+      
+      # Send authentication
+      - send:
+          data: |
+            40{"auth":{"token":"{{ authToken }}"}}
+      
+      # Wait for authentication response
+      - wait: 1
+      
+      # Send test message
+      - send:
+          data: |
+            42["test:message", {"data": "load test"}]
+      
+      # Wait for response
+      - wait: 2
+      
+      # Send deployment status subscription
+      - send:
+          data: |
+            42["subscribe", {"channel": "deployment:status"}]
+      
+      # Keep connection alive
+      - wait: 5
+
+# Custom functions for test data generation
+processor: "./tests/performance/load-test-processor.js"

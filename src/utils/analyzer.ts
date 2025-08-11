@@ -133,7 +133,7 @@ export class ProjectAnalyzer {
    * Analyze Manifest project based on manifest.yaml/yml
    */
   private static analyzeManifestProject(_files: ProjectFile[], manifestFile: ProjectFile): ProjectAnalysis {
-    let manifestConfig: ManifestConfig = {};
+    const manifestConfig: ManifestConfig = {};
     
     try {
       // Simple YAML parsing - in production, use a proper YAML parser like 'js-yaml'

@@ -1,0 +1,59 @@
+{
+  "summary": {
+    "total": 9,
+    "passed": 9,
+    "failed": 0,
+    "successRate": "100.0%",
+    "timestamp": "2025-08-10T01:05:17.859Z"
+  },
+  "tests": [
+    {
+      "name": "Backend Connectivity",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Frontend Connectivity",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Databases Page Load",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "API Endpoints",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "CORS Configuration",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Data Flow",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Error Handling",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Performance",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "WebSocket Connection",
+      "status": "PASS",
+      "error": null
+    }
+  ],
+  "recommendations": [
+    "All tests passed! Frontend-backend integration is working well."
+  ]
+}

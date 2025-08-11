@@ -1,0 +1,199 @@
+# AlertManager Configuration for CodeRunner
+# Handles alert routing, grouping, and notifications
+
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@coderunner.com'
+  smtp_auth_username: 'alerts@coderunner.com'
+  smtp_auth_password: 'your-email-password'
+  
+  # Slack webhook for general notifications
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# Templates for notification formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route configuration
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'default'
+  
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 15m
+      
+    # System alerts
+    - match:
+        service: system
+      receiver: 'system-alerts'
+      group_by: ['alertname', 'instance']
+      
+    # Database alerts
+    - match:
+        service: database
+      receiver: 'database-alerts'
+      group_wait: 30s
+      
+    # Application alerts
+    - match:
+        service: application
+      receiver: 'application-alerts'
+      
+    # WebSocket alerts
+    - match:
+        service: websocket
+      receiver: 'websocket-alerts'
+      
+    # Business alerts (lower priority)
+    - match:
+        service: business
+      receiver: 'business-alerts'
+      repeat_interval: 4h
+
+receivers:
+  # Default receiver
+  - name: 'default'
+    slack_configs:
+    - channel: '#coderunner-alerts'
+      title: 'CodeRunner Alert'
+      text: |
+        {{ range .Alerts }}
+        Alert: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Severity: {{ .Labels.severity }}
+        Service: {{ .Labels.service }}
+        {{ end }}
+
+  # Critical alerts - multiple channels + PagerDuty
+  - name: 'critical-alerts'
+    slack_configs:
+    - channel: '#coderunner-critical'
+      title: '🚨 CRITICAL: CodeRunner Alert'
+      text: |
+        {{ range .Alerts }}
+        🔴 **CRITICAL ALERT**
+        Summary: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Service: {{ .Labels.service }}
+        Instance: {{ .Labels.instance }}
+        Runbook: {{ .Annotations.runbook_url }}
+        {{ end }}
+      send_resolved: true
+    
+    email_configs:
+    - to: 'oncall@coderunner.com'
+      subject: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+      body: |
+        Critical alert fired in CodeRunner.
+        
+        {{ range .Alerts }}
+        Alert: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Service: {{ .Labels.service }}
+        Instance: {{ .Labels.instance }}
+        Started: {{ .StartsAt }}
+        Runbook: {{ .Annotations.runbook_url }}
+        {{ end }}
+    
+    # PagerDuty integration (if configured)
+    pagerduty_configs:
+    - routing_key: 'YOUR_PAGERDUTY_INTEGRATION_KEY'
+      description: 'CodeRunner Critical Alert: {{ .GroupLabels.alertname }}'
+
+  # System alerts
+  - name: 'system-alerts'
+    slack_configs:
+    - channel: '#coderunner-system'
+      title: '⚠️ System Alert: {{ .GroupLabels.alertname }}'
+      text: |
+        {{ range .Alerts }}
+        🔶 System Alert
+        Summary: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Instance: {{ .Labels.instance }}
+        {{ end }}
+
+  # Database alerts
+  - name: 'database-alerts'
+    slack_configs:
+    - channel: '#coderunner-database'
+      title: '🗄️ Database Alert: {{ .GroupLabels.alertname }}'
+      text: |
+        {{ range .Alerts }}
+        🔶 Database Alert
+        Summary: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        {{ end }}
+    
+    email_configs:
+    - to: 'dba@coderunner.com'
+      subject: 'Database Alert: {{ .GroupLabels.alertname }}'
+      body: |
+        Database alert in CodeRunner:
+        
+        {{ range .Alerts }}
+        Alert: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Started: {{ .StartsAt }}
+        {{ end }}
+
+  # Application alerts
+  - name: 'application-alerts'
+    slack_configs:
+    - channel: '#coderunner-app'
+      title: '🚀 Application Alert: {{ .GroupLabels.alertname }}'
+      text: |
+        {{ range .Alerts }}
+        🔶 Application Alert
+        Summary: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Service: {{ .Labels.service }}
+        {{ end }}
+
+  # WebSocket alerts
+  - name: 'websocket-alerts'
+    slack_configs:
+    - channel: '#coderunner-websocket'
+      title: '🔌 WebSocket Alert: {{ .GroupLabels.alertname }}'
+      text: |
+        {{ range .Alerts }}
+        🔶 WebSocket Alert
+        Summary: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        {{ end }}
+
+  # Business alerts (low priority)
+  - name: 'business-alerts'
+    slack_configs:
+    - channel: '#coderunner-business'
+      title: '📊 Business Alert: {{ .GroupLabels.alertname }}'
+      text: |
+        {{ range .Alerts }}
+        📊 Business Metric Alert
+        Summary: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        {{ end }}
+
+# Inhibition rules - suppress certain alerts when others are firing
+inhibit_rules:
+  # Suppress non-critical alerts when critical ones are active
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+    
+  # Suppress individual service alerts when system is down
+  - source_match:
+      alertname: 'SystemDown'
+    target_match_re:
+      service: '(database|websocket|api)'
+    equal: ['instance']

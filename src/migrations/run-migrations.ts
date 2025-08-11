@@ -282,7 +282,7 @@ async function main() {
       await runner.showStatus();
       break;
       
-    case 'create':
+    case 'create': {
       const name = process.argv[3];
       if (!name) {
         console.error('❌ Please provide a migration name: npm run migrate:create "migration name"');
@@ -290,6 +290,7 @@ async function main() {
       }
       await runner.createMigration(name);
       break;
+    }
       
     default:
       console.log('📚 CodeRunner Migration Tool');

@@ -56,7 +56,7 @@ export class ManifestEngine {
   /**
    * Parse manifest YAML content into structured config
    */
-  private parseManifest(manifestContent: string): ManifestConfig {
+  public parseManifest(manifestContent: string): ManifestConfig {
     try {
       const parsed = yaml.load(manifestContent) as any;
 
@@ -78,22 +78,26 @@ export class ManifestEngine {
           throw new Error('Each entity must have a valid name');
         }
 
-        if (!entity.fields || !Array.isArray(entity.fields)) {
-          throw new Error(`Entity "${entity.name}" must have a fields array`);
+        // Handle empty fields - allow undefined/null or empty array
+        if (entity.fields && !Array.isArray(entity.fields)) {
+          throw new Error(`Entity "${entity.name}" fields must be an array`);
         }
+        
+        // Default to empty array if fields is undefined/null
+        const rawFields = entity.fields || [];
 
-        const fields: ManifestField[] = entity.fields.map((field: any) => {
+        const fields: ManifestField[] = rawFields.map((field: any) => {
           if (!field.name || typeof field.name !== 'string') {
             throw new Error(`Fields in entity "${entity.name}" must have valid names`);
           }
 
-          if (!field.type || !['string', 'number', 'boolean', 'date'].includes(field.type)) {
-            throw new Error(`Field "${field.name}" in entity "${entity.name}" must have a valid type (string, number, boolean, date)`);
-          }
+          // Validate field type, default to 'string' for invalid types
+          const validTypes = ['string', 'number', 'boolean', 'date'];
+          const fieldType = field.type && validTypes.includes(field.type) ? field.type : 'string';
 
           return {
             name: field.name,
-            type: field.type,
+            type: fieldType,
             required: field.required || false
           };
         });
@@ -188,16 +192,16 @@ app.get('/api', (req, res) => {
     entities: [${manifest.entities.map(entity => `'${entity.name.toLowerCase()}'`).join(', ')}],
     endpoints: {
 ${manifest.entities.map(entity => {
-  const entityName = entity.name.toLowerCase();
-  const pluralName = this.pluralize(entityName);
-  return `      '${pluralName}': {
+    const entityName = entity.name.toLowerCase();
+    const pluralName = this.pluralize(entityName);
+    return `      '${pluralName}': {
         'GET /api/${pluralName}': 'List all ${pluralName}',
         'GET /api/${pluralName}/:id': 'Get ${entityName} by ID',
         'POST /api/${pluralName}': 'Create new ${entityName}',
         'PUT /api/${pluralName}/:id': 'Update ${entityName}',
         'DELETE /api/${pluralName}/:id': 'Delete ${entityName}'
       }`;
-}).join(',\n')}
+  }).join(',\n')}
     }
   });
 });
@@ -251,7 +255,7 @@ module.exports = app;`;
       ? `  // Validate required fields
   const missingFields = [];
   ${requiredFields.map(field => 
-    `if (!req.body.${field.name}) missingFields.push('${field.name}');`
+    `if (!req.body['${field.name}']) missingFields.push('${field.name}');`
   ).join('\n  ')}
   
   if (missingFields.length > 0) {
@@ -400,9 +404,9 @@ function initDatabase() {
       
       // Initialize collections for each entity
       ${manifest.entities.map(entity => {
-        const pluralName = this.pluralize(entity.name.toLowerCase());
-        return `db.data.${pluralName} = db.data.${pluralName} || [];`;
-      }).join('\n      ')}
+    const pluralName = this.pluralize(entity.name.toLowerCase());
+    return `db.data.${pluralName} = db.data.${pluralName} || [];`;
+  }).join('\n      ')}
 
       return db.write();
     }).then(() => {
@@ -597,10 +601,10 @@ The server will start on port 3000 (or the PORT environment variable).
 ### Available Entities
 
 ${manifest.entities.map(entity => {
-  const entityName = entity.name.toLowerCase();
-  const pluralName = this.pluralize(entityName);
+    const entityName = entity.name.toLowerCase();
+    const pluralName = this.pluralize(entityName);
   
-  return `#### ${entity.name}
+    return `#### ${entity.name}
 
 **Endpoints:**
 - \`GET /api/${pluralName}\` - List all ${pluralName}
@@ -611,25 +615,33 @@ ${manifest.entities.map(entity => {
 
 **Fields:**
 ${entity.fields.map(field => 
-  `- \`${field.name}\`: ${field.type}${field.required ? ' (required)' : ''}`
-).join('\n')}
+    `- \`${field.name}\`: ${field.type}${field.required ? ' (required)' : ''}`
+  ).join('\n')}
 
 **Example JSON:**
 \`\`\`json
 {
 ${entity.fields.map(field => {
-  let exampleValue: any;
-  switch (field.type) {
-    case 'string': exampleValue = `"example ${field.name}"`; break;
+    let exampleValue: any;
+    switch (field.type) {
+    case 'text': exampleValue = `"example ${field.name}"`; break;
+    case 'longtext': exampleValue = `"This is a longer text field for ${field.name}"`; break;
     case 'number': exampleValue = '123'; break;
     case 'boolean': exampleValue = 'true'; break;
     case 'date': exampleValue = '"2023-12-01T00:00:00.000Z"'; break;
-  }
-  return `  "${field.name}": ${exampleValue}`;
-}).join(',\n')}
+    case 'datetime': exampleValue = '"2023-12-01T10:30:00.000Z"'; break;
+    case 'email': exampleValue = '"user@example.com"'; break;
+    case 'url': exampleValue = '"https://example.com"'; break;
+    case 'enum': exampleValue = '"option1"'; break;
+    case 'array': exampleValue = '["item1", "item2"]'; break;
+    case 'reference': exampleValue = '"uuid-reference-id"'; break;
+    default: exampleValue = `"example ${field.name}"`;
+    }
+    return `  "${field.name}": ${exampleValue}`;
+  }).join(',\n')}
 }
 \`\`\``;
-}).join('\n\n')}
+  }).join('\n\n')}
 
 ## 🗄️ Database
 

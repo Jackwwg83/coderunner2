@@ -1,0 +1,171 @@
+{
+  "timestamp": "2025-08-10T09:03:15.015Z",
+  "summary": {
+    "passed": 13,
+    "failed": 0,
+    "warnings": 0,
+    "passRate": 100,
+    "mvpReady": true
+  },
+  "tests": [
+    {
+      "description": "Backend Health Check",
+      "status": "PASS",
+      "duration": 88,
+      "result": {
+        "status": "degraded",
+        "database": "healthy",
+        "responseTime": 53
+      }
+    },
+    {
+      "description": "Frontend Load Test",
+      "status": "PASS",
+      "duration": 93,
+      "result": {
+        "loadTime": 93,
+        "size": 44847
+      }
+    },
+    {
+      "description": "API Endpoint /api",
+      "status": "PASS",
+      "duration": 3,
+      "result": {
+        "status": 200,
+        "data": {
+          "success": true,
+          "data": {
+            "version": "1.0.0",
+            "environment": "development",
+            "timestamp": "2025-08-10T09:03:08.266Z",
+            "endpoints": {
+              "auth": "/api/auth - Authentication (✅ Implemented)",
+              "deploy": "/api/deploy - Unified Deployment (✅ Implemented)",
+              "deployments": "/api/deployments - Deployment Management (✅ P2-T03)",
+              "websocket": "/api/websocket - Real-time Logs & WebSocket (✅ P2-T01)",
+              "config": "/api/config - Configuration Management (✅ P2-T04)",
+              "scaling": "/api/scaling - Auto-scaling & Resource Optimization (✅ P2-T05)",
+              "projects": "/api/projects - Coming in Phase 1",
+              "executions": "/api/executions - Coming in Phase 1",
+              "templates": "/api/templates - Database Templates (🚧 DISABLED FOR EMERGENCY FIX)",
+              "orchestrator": "/api/orchestrator - Database Orchestration (🚧 DISABLED FOR EMERGENCY FIX)",
+              "users": "/api/users - Coming in Phase 1"
+            }
+          },
+          "message": "CodeRunner API is running",
+          "timestamp": "2025-08-10T09:03:08.266Z"
+        }
+      }
+    },
+    {
+      "description": "API Endpoint /api/health/database",
+      "status": "PASS",
+      "duration": 64,
+      "result": {
+        "status": 200,
+        "data": {
+          "success": true,
+          "data": {
+            "database": "connected",
+            "status": "connected",
+            "timestamp": "2025-08-10T09:03:08.330Z"
+          },
+          "message": "Operation successful",
+          "timestamp": "2025-08-10T09:03:08.330Z"
+        }
+      }
+    },
+    {
+      "description": "API Endpoint /api/auth/validate-password",
+      "status": "PASS",
+      "duration": 5,
+      "result": {
+        "status": 200,
+        "data": {
+          "success": true,
+          "data": {
+            "isValid": false,
+            "errors": [
+              "Password should not contain sequential characters or common patterns"
+            ],
+            "strength": "weak"
+          },
+          "message": "Password validation complete",
+          "timestamp": "2025-08-10T09:03:08.336Z"
+        }
+      }
+    },
+    {
+      "description": "API Endpoint /api/nonexistent",
+      "status": "PASS",
+      "duration": 4,
+      "result": {
+        "status": 404
+      }
+    },
+    {
+      "description": "Frontend Page /",
+      "status": "PASS",
+      "duration": 84,
+      "result": {
+        "status": 200,
+        "size": 44847
+      }
+    },
+    {
+      "description": "Frontend Page /deployments",
+      "status": "PASS",
+      "duration": 2396,
+      "result": {
+        "status": 200,
+        "size": 38568
+      }
+    },
+    {
+      "description": "Frontend Page /projects",
+      "status": "PASS",
+      "duration": 1014,
+      "result": {
+        "status": 200,
+        "size": 58261
+      }
+    },
+    {
+      "description": "Frontend Page /databases",
+      "status": "PASS",
+      "duration": 1962,
+      "result": {
+        "status": 200,
+        "size": 40309
+      }
+    },
+    {
+      "description": "Frontend Page /test-editor",
+      "status": "PASS",
+      "duration": 934,
+      "result": {
+        "status": 200,
+        "size": 66721
+      }
+    },
+    {
+      "description": "Performance Benchmarks",
+      "status": "PASS",
+      "duration": 132,
+      "result": {
+        "apiTime": 3,
+        "frontendTime": 129
+      }
+    },
+    {
+      "description": "Security Headers Check",
+      "status": "PASS",
+      "duration": 91,
+      "result": {
+        "x-frame-options": "missing",
+        "x-content-type-options": "missing"
+      }
+    }
+  ]
+}

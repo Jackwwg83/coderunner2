@@ -1,0 +1,21 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/agent-network/page": "/agent-network",
+  "/auth/page": "/auth",
+  "/billing/page": "/billing",
+  "/command-center/page": "/command-center",
+  "/databases/[id]/page": "/databases/[id]",
+  "/databases/deploy/page": "/databases/deploy",
+  "/databases/page": "/databases",
+  "/deploy/new/page": "/deploy/new",
+  "/editor/[deploymentId]/page": "/editor/[deploymentId]",
+  "/intelligence/page": "/intelligence",
+  "/operations/page": "/operations",
+  "/page": "/",
+  "/projects/page": "/projects",
+  "/systems/page": "/systems",
+  "/settings/page": "/settings",
+  "/team/page": "/team",
+  "/deployments/page": "/deployments",
+  "/deployments/[id]/page": "/deployments/[id]"
+}

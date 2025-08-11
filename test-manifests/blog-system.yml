@@ -1,0 +1,113 @@
+name: Blog System
+version: 1.0.0
+description: Complete blog platform with users, posts, and comments
+authentication:
+  enabled: true
+  type: jwt
+  expiresIn: 7d
+  protectedRoutes:
+    - /api/posts
+    - /api/comments
+
+entities:
+  - name: User
+    fields:
+      - name: email
+        type: email
+        required: true
+        unique: true
+        description: User's email address for login
+      - name: password
+        type: text
+        required: true
+        minLength: 8
+        description: Encrypted password
+      - name: username
+        type: text
+        required: true
+        unique: true
+        minLength: 3
+        maxLength: 30
+        pattern: '^[a-zA-Z0-9_]+$'
+        description: Unique username for display
+      - name: firstName
+        type: text
+        required: true
+        maxLength: 50
+      - name: lastName
+        type: text
+        required: true
+        maxLength: 50
+      - name: bio
+        type: longtext
+        maxLength: 500
+        description: User's biography
+      - name: website
+        type: url
+        description: Personal website URL
+      - name: isActive
+        type: boolean
+        defaultValue: true
+        description: Account status
+
+  - name: Post
+    fields:
+      - name: title
+        type: text
+        required: true
+        maxLength: 200
+        description: Post title
+      - name: slug
+        type: text
+        required: true
+        unique: true
+        pattern: '^[a-z0-9-]+$'
+        description: URL-friendly version of title
+      - name: content
+        type: longtext
+        required: true
+        description: Main post content in markdown
+      - name: excerpt
+        type: text
+        maxLength: 300
+        description: Short description for previews
+      - name: status
+        type: enum
+        enumValues: [draft, published, archived]
+        defaultValue: draft
+        description: Publication status
+      - name: authorId
+        type: reference
+        reference: User
+        required: true
+        description: Author of the post
+      - name: publishedAt
+        type: datetime
+        description: When the post was published
+      - name: viewCount
+        type: number
+        defaultValue: 0
+        min: 0
+        description: Number of views
+
+  - name: Comment
+    fields:
+      - name: content
+        type: longtext
+        required: true
+        maxLength: 1000
+        description: Comment text
+      - name: authorId
+        type: reference
+        reference: User
+        required: true
+        description: Comment author
+      - name: postId
+        type: reference
+        reference: Post
+        required: true
+        description: Post this comment belongs to
+      - name: isApproved
+        type: boolean
+        defaultValue: false
+        description: Moderation status

@@ -1,0 +1,182 @@
+config:
+  target: 'ws://localhost:3000'
+  phases:
+    # Warm-up WebSocket connections
+    - duration: 30
+      arrivalRate: 5
+      name: "WebSocket warm-up"
+    
+    # Gradual connection increase
+    - duration: 60
+      arrivalRate: 10
+      rampTo: 25
+      name: "Connection ramp-up"
+    
+    # Sustained WebSocket load
+    - duration: 180
+      arrivalRate: 25
+      name: "Sustained WebSocket load"
+    
+    # High connection load
+    - duration: 60
+      arrivalRate: 50
+      name: "High WebSocket load"
+  
+  processor: './performance/processors/websocket-processor.js'
+  
+  ws:
+    # WebSocket connection options
+    connect: true
+    subprotocols: []
+  
+  variables:
+    authToken: "{{ $processEnvironment.TEST_AUTH_TOKEN }}"
+
+scenarios:
+  # Log streaming load test
+  - name: "Log Streaming Load"
+    weight: 60
+    engine: ws
+    flow:
+      # Connect with auth
+      - connect:
+          query:
+            token: "{{ authToken }}"
+      
+      # Subscribe to logs for a deployment
+      - send:
+          payload: |
+            {
+              "event": "subscribe:logs",
+              "data": {
+                "deploymentId": "{{ $randomUUID }}",
+                "filters": {
+                  "level": "info"
+                }
+              }
+            }
+      
+      # Wait and listen for log messages
+      - think: 5
+      
+      # Send some test actions
+      - loop:
+        - send:
+            payload: |
+              {
+                "event": "deployment:action",
+                "data": {
+                  "deploymentId": "{{ $randomUUID }}",
+                  "action": "status"
+                }
+              }
+        - think: 2
+        count: 5
+      
+      # Unsubscribe
+      - send:
+          payload: |
+            {
+              "event": "unsubscribe:logs",
+              "data": {
+                "deploymentId": "{{ $randomUUID }}"
+              }
+            }
+
+  # Real-time status updates
+  - name: "Status Updates Load"
+    weight: 25
+    engine: ws
+    flow:
+      - connect:
+          query:
+            token: "{{ authToken }}"
+      
+      # Subscribe to status updates for multiple deployments
+      - loop:
+        - send:
+            payload: |
+              {
+                "event": "subscribe:status",
+                "data": {
+                  "deploymentId": "{{ $randomUUID }}"
+                }
+              }
+        - think: 1
+        count: 3
+      
+      # Wait for status updates
+      - think: 10
+      
+      # Send deployment actions
+      - loop:
+        - send:
+            payload: |
+              {
+                "event": "deployment:action",
+                "data": {
+                  "deploymentId": "{{ $randomUUID }}",
+                  "action": "restart"
+                }
+              }
+        - think: 3
+        count: 2
+
+  # Scaling events monitoring
+  - name: "Scaling Events Load"
+    weight: 15
+    engine: ws
+    flow:
+      - connect:
+          query:
+            token: "{{ authToken }}"
+      
+      # Subscribe to scaling events
+      - send:
+          payload: |
+            {
+              "event": "subscribe:scaling",
+              "data": {
+                "deploymentId": "{{ $randomUUID }}"
+              }
+            }
+      
+      # Subscribe to metrics
+      - send:
+          payload: |
+            {
+              "event": "subscribe:metrics",
+              "data": {
+                "deploymentId": "{{ $randomUUID }}",
+                "interval": 5000
+              }
+            }
+      
+      # Wait for events
+      - think: 15
+      
+      # Manual scaling request
+      - send:
+          payload: |
+            {
+              "event": "deployment:action",
+              "data": {
+                "deploymentId": "{{ $randomUUID }}",
+                "action": "scale",
+                "params": {
+                  "targetInstances": 3
+                }
+              }
+            }
+
+# Performance expectations for WebSocket
+expect:
+  # Connection success rate
+  - ws.connect_success_rate: 0.98  # 98% success rate
+  
+  # Message round-trip time
+  - ws.message_latency_p95: 100    # 95th percentile < 100ms
+  - ws.message_latency_p99: 200    # 99th percentile < 200ms
+  
+  # Connection stability
+  - ws.connection_drops: 5         # Max 5 connection drops per test
